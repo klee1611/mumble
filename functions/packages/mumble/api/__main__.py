@@ -9,7 +9,6 @@ import json
 import os
 import re
 import urllib.parse
-import urllib.request
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -26,7 +25,7 @@ CORS = {
 
 # Works whether the function is called directly (/memos) or through an
 # App Platform route (/api/memos): only the tail of the path matters.
-ROUTE = re.compile(r"(?:^|/)(memos|nap|digest|search|items/(\d+)(/event\.ics)?)/?$")
+ROUTE = re.compile(r"(?:^|/)(memos|nap|digest|review|search|items/(\d+)(/event\.ics)?)/?$")
 
 
 def _json_default(o):
@@ -49,21 +48,6 @@ def respond(status: int, body, headers: dict | None = None) -> dict:
 
 def _authorized(token: str) -> bool:
     return core.token_ok(token, os.environ.get("MUMBLE_TOKEN", ""))
-
-
-def _wake_github() -> dict:
-    repo, token = os.environ.get("GH_REPO", ""), os.environ.get("GH_TOKEN", "")
-    if not repo or not token:
-        raise core.ApiError(503, "GitHub isn't configured")
-    req = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/dispatches",
-        data=json.dumps({"event_type": "nap"}).encode(),
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
-                 "User-Agent": "mumble"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10):
-        return {"started": True}
 
 
 def main(args: dict) -> dict:
@@ -98,16 +82,19 @@ def main(args: dict) -> dict:
         if not isinstance(data, dict):
             raise ValueError("body must be an object")
         if route == "nap" and method == "POST":
-            return respond(200, _wake_github())
+            # The nap runs on GitHub's 3 AM schedule; the API holds no GitHub token.
+            return respond(200, {"started": False, "reason": "naps run at 3 AM"})
         with psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row, autocommit=True) as conn:
             if route == "memos" and method == "POST":
                 return respond(200, core.add_memo(conn, data.get("mime", ""), data.get("audio", "")))
             if route == "memos":
                 return respond(200, core.list_memos(conn, query.get("limit", 50)))
             if route == "nap":
-                return respond(200, core.nap_status(conn))
+                return respond(200, core.nap_status(conn, can_nap_now=False))
             if route == "digest":
                 return respond(200, core.digest(conn, secret))
+            if route == "review":
+                return respond(200, core.latest_review(conn))
             if route == "search":
                 return respond(200, core.search(conn, query.get("q", ""), query.get("limit", 10)))
             if item_id and is_ics:

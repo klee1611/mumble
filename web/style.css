@@ -85,6 +85,15 @@ button { cursor: pointer; }
 .item .actions .no { background: transparent; color: var(--muted); }
 .empty { text-align: center; color: var(--muted); padding: 40px 0; }
 
+/* weekly review */
+.review { border-color: var(--moss); background: color-mix(in srgb, var(--moss-soft) 45%, var(--card)); margin-bottom: 26px; }
+.review .headline { font-size: 18px; margin: 0 0 10px; }
+.review .one-thing { margin: 0 0 12px; }
+.review h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 14px 0 6px; }
+.review ul { margin: 0; padding-left: 18px; }
+.review li { margin: 4px 0; }
+.review .cites { color: var(--muted); font-size: 14px; }
+
 /* search */
 .search { display: flex; gap: 8px; margin-bottom: 18px; }
 .search input, #login-form input {

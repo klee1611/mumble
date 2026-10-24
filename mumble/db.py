@@ -42,6 +42,17 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS items_tsv_idx ON items USING gin (tsv);
 CREATE INDEX IF NOT EXISTS items_status_idx ON items (status, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS reviews (
+    id            bigserial PRIMARY KEY,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    model         text NOT NULL,
+    items_read    int NOT NULL,
+    input_tokens  int NOT NULL,
+    output_tokens int NOT NULL,
+    cost_usd      numeric(12, 6) NOT NULL,
+    body          jsonb NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS naps (
     id          bigserial PRIMARY KEY,
     started_at  timestamptz NOT NULL DEFAULT now(),

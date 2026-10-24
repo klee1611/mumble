@@ -3,8 +3,6 @@
 environment:
   DATABASE_URL: "${DATABASE_URL}"
   MUMBLE_TOKEN: "${MUMBLE_TOKEN}"
-  GH_REPO: "${GH_REPO}"
-  GH_TOKEN: "${GH_TOKEN}"
 packages:
   - name: mumble
     functions:
@@ -15,12 +13,3 @@ packages:
         limits:
           timeout: 15000
           memory: 256
-      # The alarm clock: wakes the GitHub Actions night shift.
-      - name: wake
-        runtime: python:3.11
-        web: false
-        triggers:
-          - name: three-am-toronto
-            sourceType: scheduler
-            sourceDetails:
-              cron: "0 7 * * *"   # 07:00 UTC = 3 AM EDT (2 AM after DST ends)

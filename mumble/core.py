@@ -82,12 +82,12 @@ def list_memos(conn, limit=50) -> list[dict]:
     ).fetchall()
 
 
-def nap_status(conn) -> dict:
+def nap_status(conn, can_nap_now: bool) -> dict:
     pending = conn.execute("SELECT count(*) AS n FROM memos WHERE status='pending'").fetchone()["n"]
     last = conn.execute("SELECT * FROM naps ORDER BY id DESC LIMIT 1").fetchone()
     napping = bool(last and last["finished_at"] is None
                    and last["started_at"] > datetime.now(timezone.utc) - timedelta(hours=2))
-    return {"napping": napping, "pending": pending, "last": last}
+    return {"napping": napping, "pending": pending, "last": last, "can_nap_now": can_nap_now}
 
 
 def _payoff(audio_s: float, words: int, items: int) -> dict:
@@ -116,6 +116,23 @@ def digest(conn, secret: str) -> dict:
         "last_nap": last and {**last, "payoff": _payoff(last["audio_s"], last["words"], last["items"])},
         "all_time": {**totals, "payoff": _payoff(totals["audio_s"], totals["words"], totals["items"])},
     }
+
+
+def latest_review(conn) -> dict | None:
+    """The newest weekly review, with the items each claim cites attached."""
+    review = conn.execute("SELECT * FROM reviews ORDER BY id DESC LIMIT 1").fetchone()
+    if not review:
+        return None
+    body = review["body"]
+    claims = [c for k in ("keep_saying", "slipping", "connections") for c in body.get(k, [])]
+    if body.get("one_thing"):
+        claims.append(body["one_thing"])
+    ids = sorted({i for c in claims for i in c["item_ids"]})
+    titles = {r["id"]: r["title"] for r in conn.execute(
+        "SELECT id, title FROM items WHERE id = ANY(%s)", (ids,)).fetchall()}
+    for c in claims:
+        c["items"] = [{"id": i, "title": titles[i]} for i in c["item_ids"] if i in titles]
+    return {**review, "body": body}
 
 
 def set_item_status(conn, item_id: int, status: str) -> dict:

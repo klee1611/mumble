@@ -84,7 +84,7 @@ def nap_now():
 @app.get("/api/nap", dependencies=[Depends(auth)])
 def nap_status():
     with db.connect() as conn:
-        status = core.nap_status(conn)
+        status = core.nap_status(conn, can_nap_now=True)
     return {**status, "napping": status["napping"] or _nap_lock.locked()}
 
 
@@ -92,6 +92,12 @@ def nap_status():
 def digest():
     with db.connect() as conn:
         return core.digest(conn, config.TOKEN)
+
+
+@app.get("/api/review", dependencies=[Depends(auth)])
+def review():
+    with db.connect() as conn:
+        return core.latest_review(conn)
 
 
 @app.patch("/api/items/{item_id}", dependencies=[Depends(auth)])

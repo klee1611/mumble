@@ -1,14 +1,16 @@
-# The night shift. Woken at 3 AM by the DigitalOcean "wake" function
-# (repository_dispatch), or by hand from the Actions tab.
+# The night shift: 3 AM in Toronto, or by hand from the Actions tab.
 # Free CPU runner, open models, nobody waiting.
 name: nap
 
 on:
-  repository_dispatch:
-    types: [nap]
   workflow_dispatch:
+    inputs:
+      review:
+        description: "Also run the Ultramarine weekly review"
+        type: boolean
+        default: false
   schedule:
-    - cron: "30 9 * * *"  # backup alarm, in case the 3 AM one didn't ring
+    - cron: "0 7 * * *"  # 07:00 UTC = 3 AM EDT (2 AM EST); GitHub may start it a little late
 
 permissions:
   contents: read
@@ -36,10 +38,10 @@ jobs:
         run: |
           n=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM memos WHERE status='pending'" 2>/dev/null || echo 1)
           echo "count=$n" >> "$GITHUB_OUTPUT"
+          echo "dow=$(date -u +%u)" >> "$GITHUB_OUTPUT"
           echo "pending memos: $n"
 
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
-        if: steps.pending.outputs.count != '0'
 
       - name: Cache models
         if: steps.pending.outputs.count != '0'
@@ -65,3 +67,13 @@ jobs:
         run: |
           uv sync --no-dev
           uv run --no-dev python -m mumble.nap
+
+      # Sunday 3 AM (07:00 UTC is still Sunday), or on request: Ultramarine
+      # reads the whole week at once. Costs a fraction of a cent.
+      - name: Weekly review
+        if: (github.event_name == 'schedule' && steps.pending.outputs.dow == '7') || inputs.review
+        env:
+          PAPERINSTRUMENTS_API_KEY: ${{ secrets.PAPERINSTRUMENTS_API_KEY }}
+        run: |
+          uv sync --no-dev
+          uv run --no-dev python -m mumble.review

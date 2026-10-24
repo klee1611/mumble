@@ -69,6 +69,8 @@ def test_upload_and_list(fn):
     assert status == 200 and memo["status"] == "pending"
     status, memos = call(fn, "GET", "/memos", query="limit=5")
     assert status == 200 and memos[0]["id"] == memo["id"]
+    with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+        conn.execute("DELETE FROM memos WHERE id = %s", (memo["id"],))
 
 
 def test_rejects_non_audio_and_huge(fn):
@@ -102,6 +104,8 @@ def test_digest_search_patch_ics(fn):
     status, row = call(fn, "PATCH", f"/items/{item_id}", {"status": "dismissed"})
     assert status == 200 and row["status"] == "dismissed"
     assert call(fn, "PATCH", f"/items/{item_id}", {"status": "lol"})[0] == 422
+    with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+        conn.execute("DELETE FROM memos WHERE id = %s", (memo_id,))
 
 
 def test_unknown_route(fn):
@@ -172,6 +176,8 @@ def test_ics_cannot_be_injected(fn):
     ics = call(fn, "GET", f"/items/{item_id}/event.ics", token=None, query=link)[1]
     assert not any(line.startswith(("ATTENDEE", "X:")) for line in ics.split("\r\n"))
     assert "SUMMARY:Lunch\\nATTENDEE:mailto:evil@example.com\\nX:1" in ics
+    with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+        conn.execute("DELETE FROM memos WHERE id = %s", (memo_id,))
 
 
 def test_like_wildcards_are_literal(fn):

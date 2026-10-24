@@ -16,6 +16,7 @@ dependencies = [
     "av>=11,<16",  # faster-whisper passes metadata_errors, removed in newer PyAV
     "dateparser>=1.2",
     "python-dotenv>=1.0",
+    "openai>=1.50",
 ]
 
 [dependency-groups]

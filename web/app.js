@@ -192,6 +192,7 @@ async function loadPile() {
     nap.napping ? "Napping…" : "Can't wait? Nap now"
   );
   if (nap.napping) napBtn.disabled = true;
+  if (!nap.can_nap_now) napBtn.hidden = true;
 
   $("#pile").replaceChildren(...[
     el("h2", {}, pending.length ? `Tonight's pile · ${pending.length}` : "Tonight's pile"),
@@ -247,8 +248,29 @@ function itemCard(it) {
   );
 }
 
+function reviewCard(r) {
+  if (!r) return null;
+  const b = r.body;
+  const claim = (c) =>
+    el("li", {}, c.text, c.items?.length ? el("span", { class: "cites" }, ` · from “${c.items.map((i) => i.title).join("”, “")}”`) : null);
+  const section = (label, list) => (list?.length ? [el("h3", {}, label), el("ul", {}, list.map(claim))] : []);
+  const cents = (Number(r.cost_usd) * 100).toFixed(2);
+  return el(
+    "div",
+    { class: "card review" },
+    el("h2", {}, "Your week, read by Ultramarine"),
+    b.headline ? el("p", { class: "headline" }, b.headline) : null,
+    b.one_thing ? el("p", { class: "one-thing" }, el("strong", {}, "One small thing: "), b.one_thing.text) : null,
+    ...section("You keep saying", b.keep_saying),
+    ...section("Slipping", b.slipping),
+    ...section("These go together", b.connections),
+    el("p", { class: "said" }, `Read ${r.items_read} items on ${fmtDay(r.created_at)} · cost ${cents}¢`)
+  );
+}
+
 async function loadDigest() {
-  const d = await api("/api/digest");
+  const [d, review] = await Promise.all([api("/api/digest"), api("/api/review")]);
+  $("#review").replaceChildren(...[reviewCard(review)].filter(Boolean));
   const p = d.last_nap?.payoff;
   $("#payoff").replaceChildren(
     p && d.last_nap.memos

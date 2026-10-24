@@ -20,17 +20,15 @@ It costs nothing to run.
 Phone PWA ──▶ DigitalOcean App Platform (free static site)
     │
     └─ API ──▶ DigitalOcean Functions (free tier) ──▶ Postgres + pgvector (Tiger Data, free)
-                    │                                        ▲
-     3 AM: scheduled "wake" function ──repository_dispatch──┐ │
-                                                            ▼ │
-                          GitHub Actions (free CPU runner): Ollama + Gemma + Whisper
+                                                                     ▲
+              3 AM cron ──▶ GitHub Actions (free CPU runner): Ollama + Gemma + Whisper
 ```
 
 | Piece | Where | Cost |
 |---|---|---|
 | Phone app (`web/`) | DigitalOcean App Platform static site | free |
 | API (`functions/`) | DigitalOcean Functions | free tier |
-| 3 AM alarm | DigitalOcean Functions scheduled trigger | free tier |
+| 3 AM alarm | GitHub Actions schedule | free |
 | Night shift (`mumble/nap.py`) | GitHub Actions, public repo | free |
 | Database | Tiger Data (Postgres + pgvector) | free tier |
 
@@ -59,7 +57,7 @@ searches by keyword.
    Create the tables once: `DATABASE_URL='postgres://...' uv run python -c "from mumble import db; db.init()"`
 2. **Night shift.** Push this repo to GitHub (public, so Actions minutes are free) and add
    the secret `DATABASE_URL` under *Settings → Secrets and variables → Actions*.
-3. **API + alarm.** Fill in `functions/.env` (see `functions/.env.example`), then
+3. **API.** Fill in `functions/.env` (see `functions/.env.example`), then
    `scripts/deploy-functions.sh`. It prints the API URL.
 4. **Phone app.** Put the API URL in `web/config.js` (`window.MUMBLE_API = "https://.../mumble/api"`),
    push, then `doctl apps create --spec .do/app.yaml`.
