@@ -224,8 +224,8 @@ async function setStatus(id, status) {
 
 function itemCard(it) {
   const actions = el("div", { class: "actions" });
-  if (it.kind === "event" && it.due_at) {
-    actions.append(el("a", { href: `${API}/api/items/${it.id}/event.ics?t=${encodeURIComponent(token())}` }, "Add to calendar"));
+  if (it.ics) {
+    actions.append(el("a", { href: `${API}/api/items/${it.id}/event.ics?${it.ics}` }, "Add to calendar"));
   }
   if (it.kind === "todo") actions.append(el("button", { onclick: () => setStatus(it.id, "done") }, "Done"));
   if (it.kind === "note") actions.append(el("button", { onclick: () => setStatus(it.id, "approved") }, "Keep"));

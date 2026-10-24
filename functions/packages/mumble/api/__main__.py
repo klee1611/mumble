@@ -82,9 +82,13 @@ def main(args: dict) -> dict:
         return respond(404, {"error": "not found"})
     route, item_id, is_ics = m.group(1), m.group(2), m.group(3)
 
-    # Calendar apps open the .ics link directly, so its token rides in the query string.
-    token = query.get("t", "") if is_ics else headers.get("authorization", "").removeprefix("Bearer ").strip()
-    if not _authorized(token):
+    secret = os.environ.get("MUMBLE_TOKEN", "")
+    if is_ics:
+        # Calendar apps open this link directly: it carries a signature that
+        # only unlocks this one event, never the API token.
+        if not core.check_ics(secret, int(item_id), query.get("exp", ""), query.get("sig", "")):
+            return respond(401, {"error": "bad or expired link"})
+    elif not _authorized(headers.get("authorization", "").removeprefix("Bearer ").strip()):
         return respond(401, {"error": "bad token"})
 
     body = http.get("body") or ""
@@ -103,7 +107,7 @@ def main(args: dict) -> dict:
             if route == "nap":
                 return respond(200, core.nap_status(conn))
             if route == "digest":
-                return respond(200, core.digest(conn))
+                return respond(200, core.digest(conn, secret))
             if route == "search":
                 return respond(200, core.search(conn, query.get("q", ""), int(query.get("limit", 10))))
             if item_id and is_ics:

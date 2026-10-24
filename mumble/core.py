@@ -5,6 +5,9 @@ in a small serverless function.
 """
 
 import base64
+import hashlib
+import hmac
+import time
 from datetime import datetime, timedelta, timezone
 
 AUDIO_TYPES = {"audio/webm", "audio/mp4", "audio/x-m4a", "audio/mpeg", "audio/ogg",
@@ -65,7 +68,7 @@ def _payoff(audio_s: float, words: int, items: int) -> dict:
             "saved_s": max(0, round(by_hand_s - audio_s))}
 
 
-def digest(conn) -> dict:
+def digest(conn, secret: str) -> dict:
     items = conn.execute(
         "SELECT id, memo_id, kind, title, detail, when_text, due_at, status, created_at "
         "FROM items WHERE status IN ('new', 'approved') "
@@ -78,6 +81,8 @@ def digest(conn) -> dict:
     last = conn.execute(
         "SELECT * FROM naps WHERE finished_at IS NOT NULL AND memos > 0 ORDER BY id DESC LIMIT 1"
     ).fetchone()
+    for it in items:
+        it["ics"] = ics_query(secret, it["id"]) if it["kind"] == "event" and it["due_at"] else None
     return {
         "items": items,
         "last_nap": last and {**last, "payoff": _payoff(last["audio_s"], last["words"], last["items"])},
@@ -94,6 +99,30 @@ def set_item_status(conn, item_id: int, status: str) -> dict:
     if not row:
         raise ApiError(404, "no such item")
     return row
+
+
+ICS_LINK_TTL_S = 30 * 24 * 3600
+
+
+def _ics_sig(secret: str, item_id: int, exp: int) -> str:
+    # Derived key, so the link can't be turned back into the API token.
+    key = hmac.new(secret.encode(), b"mumble-ics", hashlib.sha256).digest()
+    return hmac.new(key, f"{item_id}:{exp}".encode(), hashlib.sha256).hexdigest()
+
+
+def ics_query(secret: str, item_id: int) -> str:
+    """Query string for a calendar link that only unlocks this one event, for 30 days."""
+    exp = int(time.time()) + ICS_LINK_TTL_S
+    return f"exp={exp}&sig={_ics_sig(secret, item_id, exp)}"
+
+
+def check_ics(secret: str, item_id: int, exp: str, sig: str) -> bool:
+    try:
+        exp_i = int(exp)
+    except (TypeError, ValueError):
+        return False
+    return (bool(secret) and exp_i > time.time()
+            and hmac.compare_digest(sig or "", _ics_sig(secret, item_id, exp_i)))
 
 
 def item_ics(conn, item_id: int) -> tuple[str, str]:

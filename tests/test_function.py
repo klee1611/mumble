@@ -91,8 +91,13 @@ def test_digest_search_patch_ics(fn):
     status, hits = call(fn, "GET", "/search", query="q=priya")
     assert status == 200 and hits[0]["id"] == item_id
 
-    status, ics = call(fn, "GET", f"/items/{item_id}/event.ics", token=None, query=f"t={TOKEN}")
+    link = next(i["ics"] for i in d["items"] if i["id"] == item_id)
+    status, ics = call(fn, "GET", f"/items/{item_id}/event.ics", token=None, query=link)
     assert status == 200 and "DTSTART:20261027T140000Z" in ics
+    # The API token must not work in the URL, and a link only opens its own event.
+    assert call(fn, "GET", f"/items/{item_id}/event.ics", token=None, query=f"t={TOKEN}")[0] == 401
+    assert call(fn, "GET", f"/items/{item_id + 1}/event.ics", token=None, query=link)[0] == 401
+    assert call(fn, "GET", f"/items/{item_id}/event.ics", token=None, query="exp=1&sig=x")[0] == 401
 
     status, row = call(fn, "PATCH", f"/items/{item_id}", {"status": "dismissed"})
     assert status == 200 and row["status"] == "dismissed"

@@ -85,7 +85,7 @@ def nap_status():
 @app.get("/api/digest", dependencies=[Depends(auth)])
 def digest():
     with db.connect() as conn:
-        return core.digest(conn)
+        return core.digest(conn, config.TOKEN)
 
 
 @app.patch("/api/items/{item_id}", dependencies=[Depends(auth)])
@@ -95,9 +95,11 @@ def update_item(item_id: int, patch: ItemPatch):
 
 
 @app.get("/api/items/{item_id}/event.ics")
-def item_ics(item_id: int, t: str = ""):
-    # Calendar apps open this link directly, so the token rides in the query string.
-    auth(f"Bearer {t}")
+def item_ics(item_id: int, exp: str = "", sig: str = ""):
+    # Calendar apps open this link directly, so it carries a signature that
+    # only unlocks this one event, never the API token.
+    if not core.check_ics(config.TOKEN, item_id, exp, sig):
+        raise HTTPException(401, "bad or expired link")
     with db.connect() as conn:
         name, body = core.item_ics(conn, item_id)
     return PlainTextResponse(body, media_type="text/calendar",
