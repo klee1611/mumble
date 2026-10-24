@@ -35,6 +35,25 @@ Phone PWA ──▶ Vercel (free static site)
 | Night shift (`mumble/nap.py`) | GitHub Actions, public repo | free |
 | Database | Tiger Data (Postgres + pgvector) | free tier |
 
+## Project layout
+
+```
+web/          the phone app (PWA): plain HTML, CSS and JS, no build step
+api/index.py  Vercel's entrypoint; hands each /api request to mumble/api.py
+mumble/
+  core.py       the API's logic, shared by the cloud and the local server
+  api.py        the cloud API (only needs psycopg)
+  main.py       the local dev server (FastAPI)
+  nap.py        the night shift: Whisper, then Gemma, then embeddings
+  transcribe.py / structure.py   speech to text / text to to-dos, events, notes
+  review.py     the Sunday review by Ultramarine
+  db.py, config.py
+scripts/      demo_week.py seeds a week of spoken memos
+tests/
+.github/workflows/nap.yml   the 3 AM schedule
+vercel.json   hosting: static web/, /api rewrite, security headers
+```
+
 ## Run it locally
 
 Needs [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com), ffmpeg and Docker.

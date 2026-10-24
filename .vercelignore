@@ -1,7 +1,7 @@
+# Only api/, mumble/, web/ and the project files are needed to deploy.
 .env*
-functions/
-data/
 .venv/
 .playwright-mcp/
-tests/
+data/
 scripts/
+tests/

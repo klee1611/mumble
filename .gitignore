@@ -1,9 +1,12 @@
+# Secrets: .env (local dev) and .env.production (Tiger Data, live token)
+.env*
+!.env.example
+
+# Local state
 .venv/
 __pycache__/
-.env
-data/
 *.pyc
 .pytest_cache/
 .playwright-mcp/
-.vercel
-.env*
+.vercel/
+data/
