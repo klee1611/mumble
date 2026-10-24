@@ -116,6 +116,9 @@ def cost_usd(usage) -> float:
 
 def run(client: OpenAI | None = None, now: datetime | None = None) -> dict | None:
     now = now or datetime.now(timezone.utc)
+    if client is None and not os.environ.get("PAPERINSTRUMENTS_API_KEY"):
+        log.info("no PAPERINSTRUMENTS_API_KEY; skipping the weekly review")
+        return None
     db.init()
     with db.connect() as conn:
         items = _week(conn, now)

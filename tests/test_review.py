@@ -94,3 +94,8 @@ def test_run_stores_review_and_cost(week):
         latest = core.latest_review(conn)
     assert latest["body"]["headline"] == "Test week."
     assert [i["title"] for i in latest["body"]["keep_saying"][0]["items"]] == ["Call the dentist", "Call dentist about tooth"]
+
+
+def test_no_key_means_no_review(monkeypatch):
+    monkeypatch.delenv("PAPERINSTRUMENTS_API_KEY", raising=False)
+    assert review.run() is None
