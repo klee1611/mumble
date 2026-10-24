@@ -1,5 +1,5 @@
-"""Local development server. In production the same API runs as a DigitalOcean
-Function (functions/packages/mumble/api) and the nap runs on GitHub Actions."""
+"""Local development server. In production the API runs as a Vercel Function
+(api/index.py, via mumble/api.py) and the nap runs on GitHub Actions."""
 
 import subprocess
 import sys

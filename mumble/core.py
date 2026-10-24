@@ -1,4 +1,4 @@
-"""The API's logic, shared by the local FastAPI server and the DigitalOcean Function.
+"""The API's logic, shared by the local FastAPI server and the serverless API (api.py).
 
 Only needs a psycopg connection with dict rows: no models, no Ollama, so it fits
 in a small serverless function.
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 AUDIO_TYPES = {"audio/webm", "audio/mp4", "audio/x-m4a", "audio/mpeg", "audio/ogg",
                "audio/wav", "audio/x-wav", "audio/aac"}
-MAX_AUDIO_BYTES = 750 * 1024  # stays under DigitalOcean Functions' request limit once base64'd
+MAX_AUDIO_BYTES = 750 * 1024  # a 5-minute memo at 16 kbps is ~600 KB
 STATUSES = ("new", "approved", "done", "dismissed")
 
 # Lazy-payoff estimate: what the same memos would have cost by hand.

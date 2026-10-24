@@ -69,8 +69,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          uv sync --no-dev
-          uv run --no-dev python -m mumble.nap
+          uv sync --no-dev --group nap
+          uv run --no-dev --group nap python -m mumble.nap
 
       # Sunday 3 AM (07:00 UTC is still Sunday), or on request: Ultramarine
       # reads the whole week at once. Costs a fraction of a cent.
@@ -80,5 +80,5 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PAPERINSTRUMENTS_API_KEY: ${{ secrets.PAPERINSTRUMENTS_API_KEY }}
         run: |
-          uv sync --no-dev
-          uv run --no-dev python -m mumble.review
+          uv sync --no-dev --group nap
+          uv run --no-dev --group nap python -m mumble.review

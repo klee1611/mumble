@@ -1,20 +1,17 @@
-"""Calls the DigitalOcean Function handler the way DO does (raw web args),
-against the local docker-compose Postgres. Skipped if that isn't running."""
+"""Calls the serverless API handler (mumble/api.py) against the local
+docker-compose Postgres. Skipped if that isn't running."""
 
 import base64
-import importlib.util
 import json
-import shutil
-import sys
-from pathlib import Path
+import threading
+import urllib.request
+from http.server import HTTPServer
 
 import psycopg
 import pytest
 
 from mumble import config, db
 
-ROOT = Path(__file__).parent.parent
-FN_DIR = ROOT / "functions/packages/mumble/api"
 TOKEN = "test-token-that-is-long-enough-0123"
 
 
@@ -26,15 +23,10 @@ def fn(monkeypatch_module):
         pytest.skip("local Postgres isn't running (docker compose up -d)")
     db.init()
     db.close()
-    shutil.copy(ROOT / "mumble/core.py", FN_DIR / "core.py")  # what deploy-functions.sh does
-    sys.path.insert(0, str(FN_DIR))
     monkeypatch_module.setenv("MUMBLE_TOKEN", TOKEN)
     monkeypatch_module.setenv("DATABASE_URL", config.DATABASE_URL)
-    spec = importlib.util.spec_from_file_location("mumble_fn", FN_DIR / "__main__.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    yield mod
-    sys.path.remove(str(FN_DIR))
+    from mumble import api
+    return api
 
 
 @pytest.fixture(scope="module")
@@ -44,10 +36,14 @@ def monkeypatch_module():
     mp.undo()
 
 
+def raw(fn, method, path, body="", headers=None):
+    return fn.handle(method, path, headers or {}, body)
+
+
 def call(fn, method, path, body=None, token=TOKEN, query=""):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    res = fn.main({"http": {"method": method, "path": path, "headers": headers, "queryString": query,
-                            "body": json.dumps(body) if body is not None else ""}})
+    res = raw(fn, method, f"{path}?{query}" if query else path,
+              json.dumps(body) if body is not None else "", headers)
     out = res["body"]
     if res["headers"].get("Content-Type") == "application/json":
         out = json.loads(out)
@@ -59,7 +55,7 @@ def test_requires_token(fn):
 
 
 def test_preflight(fn):
-    status = fn.main({"http": {"method": "OPTIONS", "path": "/memos", "headers": {}}})["statusCode"]
+    status = raw(fn, "OPTIONS", "/memos")["statusCode"]
     assert status == 204
 
 
@@ -141,12 +137,9 @@ def test_negative_and_junk_limits(fn):
 
 
 def test_bad_bodies(fn):
-    res = fn.main({"http": {"method": "POST", "path": "/memos", "body": "[1,2]",
-                            "headers": {"Authorization": f"Bearer {TOKEN}"}}})
-    assert res["statusCode"] == 400
-    res = fn.main({"http": {"method": "POST", "path": "/memos", "body": "{nope",
-                            "headers": {"Authorization": f"Bearer {TOKEN}"}}})
-    assert res["statusCode"] == 400
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    assert raw(fn, "POST", "/memos", "[1,2]", auth)["statusCode"] == 400
+    assert raw(fn, "POST", "/memos", "{nope", auth)["statusCode"] == 400
 
 
 def test_database_errors_do_not_leak(fn, monkeypatch_module):
@@ -159,7 +152,7 @@ def test_database_errors_do_not_leak(fn, monkeypatch_module):
 
 
 def test_security_headers(fn):
-    res = fn.main({"http": {"method": "GET", "path": "/digest", "headers": {}}})
+    res = raw(fn, "GET", "/digest")
     assert res["headers"]["X-Content-Type-Options"] == "nosniff"
     assert "frame-ancestors 'none'" in res["headers"]["Content-Security-Policy"]
 
@@ -185,12 +178,36 @@ def test_like_wildcards_are_literal(fn):
     assert call(fn, "GET", "/search", query="q=__")[1] == []
 
 
-def test_function_copy_of_core_is_in_sync():
-    # App Platform builds the function from functions/ alone, so it ships its
-    # own copy of core.py. Refresh it with: cp mumble/core.py functions/packages/mumble/api/core.py
-    assert (FN_DIR / "core.py").read_text() == (ROOT / "mumble/core.py").read_text()
-
-
 def test_no_wildcard_cors_by_default(fn):
-    res = fn.main({"http": {"method": "GET", "path": "/digest", "headers": {}}})
+    res = raw(fn, "GET", "/digest")
     assert "Access-Control-Allow-Origin" not in res["headers"]
+
+
+def test_vercel_entrypoint_over_http(fn):
+    # api/index.py exactly as Vercel runs it: a BaseHTTPRequestHandler class.
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("vercel_index", Path(__file__).parent.parent / "api/index.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    server = HTTPServer(("127.0.0.1", 0), mod.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        audio = base64.b64encode(b"fake").decode()
+        req = urllib.request.Request(f"{base}/api/memos", method="POST",
+                                     data=json.dumps({"mime": "audio/webm", "audio": audio}).encode(),
+                                     headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as r:
+            memo = json.loads(r.read())
+            assert r.headers["X-Frame-Options"] == "DENY"
+        req = urllib.request.Request(f"{base}/api/memos?limit=1", headers={"Authorization": f"Bearer {TOKEN}"})
+        with urllib.request.urlopen(req) as r:
+            assert json.loads(r.read())[0]["id"] == memo["id"]
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(f"{base}/api/digest")
+        assert e.value.code == 401
+    finally:
+        server.shutdown()
+        with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+            conn.execute("DELETE FROM memos WHERE id = %s", (memo["id"],))

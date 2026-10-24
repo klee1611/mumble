@@ -1,0 +1,7 @@
+.env*
+functions/
+data/
+.venv/
+.playwright-mcp/
+tests/
+scripts/

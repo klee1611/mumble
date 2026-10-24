@@ -20,17 +20,17 @@ It costs nothing to run.
   Paper Instruments. No `PAPERINSTRUMENTS_API_KEY`, no review, and nothing leaves.
 
 ```
-Phone PWA ──▶ DigitalOcean App Platform (free static site)
+Phone PWA ──▶ Vercel (free static site)
     │
-    └─ API ──▶ DigitalOcean Functions (free tier) ──▶ Postgres + pgvector (Tiger Data, free)
-                                                                     ▲
-              3 AM cron ──▶ GitHub Actions (free CPU runner): Ollama + Gemma + Whisper
+    └─ /api ──▶ Vercel Function (Python, free) ──▶ Postgres + pgvector (Tiger Data, free)
+                                                                 ▲
+          3 AM cron ──▶ GitHub Actions (free CPU runner): Ollama + Gemma + Whisper
 ```
 
 | Piece | Where | Cost |
 |---|---|---|
-| Phone app (`web/`) | DigitalOcean App Platform static site | free |
-| API (`functions/`) | DigitalOcean Functions | free tier |
+| Phone app (`web/`) | Vercel static files | free (Hobby) |
+| API (`api/index.py` → `mumble/api.py`) | Vercel Function | free (Hobby) |
 | 3 AM alarm | GitHub Actions schedule | free |
 | Night shift (`mumble/nap.py`) | GitHub Actions, public repo | free |
 | Database | Tiger Data (Postgres + pgvector) | free tier |
@@ -43,7 +43,7 @@ Needs [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com), ffmpeg and
 ollama pull gemma4:e2b-it-qat && ollama pull embeddinggemma
 docker compose up -d                  # local Postgres + pgvector
 cp .env.example .env                  # set MUMBLE_TOKEN to something random
-uv sync
+uv sync --all-groups                  # the API alone needs only psycopg; "nap" has the models
 uv run uvicorn mumble.main:app --reload
 ```
 
@@ -60,11 +60,12 @@ searches by keyword.
    Create the tables once: `DATABASE_URL='postgres://...' uv run python -c "from mumble import db; db.init()"`
 2. **Night shift.** Push this repo to GitHub (public, so Actions minutes are free) and add
    the secret `DATABASE_URL` under *Settings → Secrets and variables → Actions*.
-3. **API.** Fill in `functions/.env` (see `functions/.env.example`), then
-   `scripts/deploy-functions.sh`. It prints the API URL.
-4. **Phone app.** Put the API URL in `web/config.js` (`window.MUMBLE_API = "https://.../mumble/api"`),
-   push, then `doctl apps create --spec .do/app.yaml`.
-5. On your phone, open `https://<your-app>/#t=<MUMBLE_TOKEN>` once and *Add to Home Screen*.
+3. **App + API.** Import the repo in Vercel (*Add New → Project*, Hobby plan, no card).
+   `vercel.json` already says what to do: serve `web/`, run `api/index.py` for `/api/*`.
+   Add two environment variables, `DATABASE_URL` and `MUMBLE_TOKEN` (24+ random characters),
+   and deploy. The function only installs `psycopg`; the heavy model packages are in the
+   `nap` dependency group, which only GitHub Actions and your laptop use.
+4. On your phone, open `https://<your-app>/#t=<MUMBLE_TOKEN>` once and *Add to Home Screen*.
 
 ## Tests
 

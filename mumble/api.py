@@ -1,10 +1,10 @@
-"""Mumble's API as a single DigitalOcean web function (raw HTTP).
+"""Mumble's API for serverless hosting (api/index.py on Vercel).
 
-The logic lives in core.py, copied here from mumble/core.py at deploy time so
-the local server and the function can't drift apart.
+Plain HTTP in, plain HTTP out: no web framework, no models, only psycopg, so
+the function stays small. The logic lives in core.py, shared with the local
+FastAPI server.
 """
 
-import base64
 import json
 import os
 import re
@@ -15,9 +15,9 @@ from decimal import Decimal
 import psycopg
 from psycopg.rows import dict_row
 
-import core
+from . import core
 
-# App Platform serves the app and /api from one origin, so no CORS by default.
+# The app and /api share one origin, so no CORS by default.
 # If the app is hosted elsewhere, set CORS_ORIGIN to that exact origin.
 _origin = os.environ.get("CORS_ORIGIN", "")
 CORS = {
@@ -27,8 +27,7 @@ CORS = {
     "Vary": "Origin",
 } if _origin else {}
 
-# Works whether the function is called directly (/memos) or through an
-# App Platform route (/api/memos): only the tail of the path matters.
+# Only the tail of the path matters: /api/memos and /memos are the same route.
 ROUTE = re.compile(r"(?:^|/)(memos|nap|digest|review|search|items/(\d+)(/event\.ics)?)/?$")
 
 
@@ -54,17 +53,17 @@ def _authorized(token: str) -> bool:
     return core.token_ok(token, os.environ.get("MUMBLE_TOKEN", ""))
 
 
-def main(args: dict) -> dict:
-    http = args.get("http", {})
-    method = http.get("method", "GET").upper()
-    headers = {k.lower(): v for k, v in (http.get("headers") or {}).items()}
-    query = dict(p.split("=", 1) if "=" in p else (p, "") for p in (http.get("queryString") or "").split("&") if p)
-    query = {k: urllib.parse.unquote_plus(v) for k, v in query.items()}
+def handle(method: str, url: str, headers: dict, body: str = "") -> dict:
+    """url is the request target, e.g. /api/search?q=dentist."""
+    method = method.upper()
+    headers = {k.lower(): v for k, v in (headers or {}).items()}
+    path, _, query_string = url.partition("?")
+    query = dict(urllib.parse.parse_qsl(query_string, keep_blank_values=True))
 
     if method == "OPTIONS":
         return respond(204, "")
 
-    m = ROUTE.search(http.get("path") or "")
+    m = ROUTE.search(path)
     if not m:
         return respond(404, {"error": "not found"})
     route, item_id, is_ics = m.group(1), m.group(2), m.group(3)
@@ -78,9 +77,6 @@ def main(args: dict) -> dict:
     elif not _authorized(headers.get("authorization", "").removeprefix("Bearer ").strip()):
         return respond(401, {"error": "bad token"})
 
-    body = http.get("body") or ""
-    if body and http.get("isBase64Encoded"):
-        body = base64.b64decode(body).decode()
     try:
         data = json.loads(body) if body else {}
         if not isinstance(data, dict):
@@ -110,7 +106,7 @@ def main(args: dict) -> dict:
         return respond(405, {"error": "method not allowed"})
     except core.ApiError as e:
         return respond(e.status, {"error": str(e)})
-    except (ValueError, json.JSONDecodeError):
+    except (ValueError, UnicodeDecodeError):  # JSONDecodeError is a ValueError
         return respond(400, {"error": "bad request"})
     except Exception as e:  # never hand internals (SQL, hostnames) to the caller
         print(f"api error: {type(e).__name__}: {e}")  # goes to the function's logs
