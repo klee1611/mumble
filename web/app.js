@@ -3,9 +3,11 @@
 const $ = (sel) => document.querySelector(sel);
 
 // ---------- token ----------
-const params = new URLSearchParams(location.search);
-if (params.get("t")) {
-  localStorage.setItem("mumble-token", params.get("t"));
+// Setup link is https://<app>/#t=<token>. A #fragment never leaves the
+// browser, so the token can't end up in server or CDN logs.
+const setup = new URLSearchParams(location.hash.slice(1)).get("t");
+if (setup) {
+  localStorage.setItem("mumble-token", setup);
   history.replaceState(null, "", "/");
 }
 const token = () => localStorage.getItem("mumble-token") || "";

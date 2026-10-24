@@ -5,7 +5,6 @@ the local server and the function can't drift apart.
 """
 
 import base64
-import hmac
 import json
 import os
 import re
@@ -44,12 +43,12 @@ def respond(status: int, body, headers: dict | None = None) -> dict:
     else:
         payload = json.dumps(body, default=_json_default)
         headers = {"Content-Type": "application/json", **(headers or {})}
-    return {"statusCode": status, "headers": {**CORS, **(headers or {})}, "body": payload}
+    return {"statusCode": status, "headers": {**CORS, **core.SECURITY_HEADERS, **(headers or {})},
+            "body": payload}
 
 
 def _authorized(token: str) -> bool:
-    expected = os.environ.get("MUMBLE_TOKEN", "")
-    return bool(expected) and hmac.compare_digest(token, expected)
+    return core.token_ok(token, os.environ.get("MUMBLE_TOKEN", ""))
 
 
 def _wake_github() -> dict:
@@ -94,22 +93,23 @@ def main(args: dict) -> dict:
     body = http.get("body") or ""
     if body and http.get("isBase64Encoded"):
         body = base64.b64decode(body).decode()
-    data = json.loads(body) if body else {}
-
     try:
+        data = json.loads(body) if body else {}
+        if not isinstance(data, dict):
+            raise ValueError("body must be an object")
         if route == "nap" and method == "POST":
             return respond(200, _wake_github())
         with psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row, autocommit=True) as conn:
             if route == "memos" and method == "POST":
                 return respond(200, core.add_memo(conn, data.get("mime", ""), data.get("audio", "")))
             if route == "memos":
-                return respond(200, core.list_memos(conn, int(query.get("limit", 50))))
+                return respond(200, core.list_memos(conn, query.get("limit", 50)))
             if route == "nap":
                 return respond(200, core.nap_status(conn))
             if route == "digest":
                 return respond(200, core.digest(conn, secret))
             if route == "search":
-                return respond(200, core.search(conn, query.get("q", ""), int(query.get("limit", 10))))
+                return respond(200, core.search(conn, query.get("q", ""), query.get("limit", 10)))
             if item_id and is_ics:
                 name, ics = core.item_ics(conn, int(item_id))
                 return respond(200, ics, {"Content-Type": "text/calendar",
@@ -121,3 +121,6 @@ def main(args: dict) -> dict:
         return respond(e.status, {"error": str(e)})
     except (ValueError, json.JSONDecodeError):
         return respond(400, {"error": "bad request"})
+    except Exception as e:  # never hand internals (SQL, hostnames) to the caller
+        print(f"api error: {type(e).__name__}: {e}")  # goes to the function's logs
+        return respond(500, {"error": "something went wrong"})

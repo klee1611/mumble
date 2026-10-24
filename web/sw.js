@@ -1,5 +1,5 @@
 // App-shell cache so Mumble opens instantly (and offline) from the home screen.
-const CACHE = "mumble-v2";
+const CACHE = "mumble-v3";
 const SHELL = ["/", "/config.js", "/app.js", "/style.css", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -19,7 +19,9 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || url.pathname.startsWith("/api/")) return;
   // Network first, cache as fallback: fresh when online, still opens offline.
   e.respondWith(
-    fetch(e.request)
+    // "no-cache" revalidates with the server, so a deploy (or a security fix)
+    // reaches the phone on the next open instead of hiding behind the HTTP cache.
+    fetch(e.request, { cache: "no-cache" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));

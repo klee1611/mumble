@@ -1,7 +1,6 @@
 """Local development server. In production the same API runs as a DigitalOcean
 Function (functions/packages/mumble/api) and the nap runs on GitHub Actions."""
 
-import secrets
 import subprocess
 import sys
 import threading
@@ -27,6 +26,13 @@ def _startup() -> None:
     db.init()
 
 
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    res = await call_next(request)
+    res.headers.update(core.SECURITY_HEADERS)
+    return res
+
+
 @app.exception_handler(core.ApiError)
 def _api_error(_: Request, e: core.ApiError):
     return JSONResponse({"error": str(e)}, status_code=e.status)
@@ -34,7 +40,7 @@ def _api_error(_: Request, e: core.ApiError):
 
 def auth(authorization: str = Header(default="")) -> None:
     token = authorization.removeprefix("Bearer ").strip()
-    if not config.TOKEN or not secrets.compare_digest(token, config.TOKEN):
+    if not core.token_ok(token, config.TOKEN):
         raise HTTPException(401, "bad token")
 
 

@@ -20,6 +20,34 @@ TYPING_WPM = 40
 SORT_SECONDS_PER_ITEM = 20
 
 
+MIN_TOKEN_LEN = 24
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": (
+        "default-src 'self'; connect-src 'self' https:; media-src 'self' blob:; "
+        "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    ),
+}
+
+
+def token_ok(given: str, expected: str) -> bool:
+    """Constant-time token check. Refuses placeholder-short tokens, and compares
+    bytes so a non-ASCII header can't crash it."""
+    if not expected or len(expected) < MIN_TOKEN_LEN:
+        return False
+    return hmac.compare_digest((given or "").encode(), expected.encode())
+
+
+def _limit(value, default: int, most: int) -> int:
+    try:
+        return max(1, min(int(value), most))
+    except (TypeError, ValueError):
+        return default
+
+
 class ApiError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -47,10 +75,10 @@ def add_memo(conn, mime: str, audio_b64: str) -> dict:
     ).fetchone()
 
 
-def list_memos(conn, limit: int = 50) -> list[dict]:
+def list_memos(conn, limit=50) -> list[dict]:
     return conn.execute(
         "SELECT id, created_at, status, duration_s, transcript, error FROM memos "
-        "ORDER BY id DESC LIMIT %s", (min(int(limit), 200),)
+        "ORDER BY id DESC LIMIT %s", (_limit(limit, 50, 200),)
     ).fetchall()
 
 
@@ -122,7 +150,7 @@ def check_ics(secret: str, item_id: int, exp: str, sig: str) -> bool:
     except (TypeError, ValueError):
         return False
     return (bool(secret) and exp_i > time.time()
-            and hmac.compare_digest(sig or "", _ics_sig(secret, item_id, exp_i)))
+            and hmac.compare_digest((sig or "").encode(), _ics_sig(secret, item_id, exp_i).encode()))
 
 
 def item_ics(conn, item_id: int) -> tuple[str, str]:
@@ -143,10 +171,12 @@ def item_ics(conn, item_id: int) -> tuple[str, str]:
 
 
 def _ics_escape(s: str) -> str:
+    # Model-written text: a raw CR or LF would let it inject extra calendar fields.
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
     return s.replace("\\", "\\\\").replace(";", r"\;").replace(",", r"\,").replace("\n", r"\n")
 
 
-def search(conn, q: str, limit: int = 10, vector: list[float] | None = None) -> list[dict]:
+def search(conn, q: str, limit=10, vector: list[float] | None = None) -> list[dict]:
     """Keyword search, fused with semantic search when a query vector is available.
 
     The serverless API has no embedding model, so it searches by keyword; the
@@ -169,7 +199,7 @@ def search(conn, q: str, limit: int = 10, vector: list[float] | None = None) -> 
         kw AS (
             SELECT id, row_number() OVER (ORDER BY ts_rank(tsv, query) DESC, id DESC) AS r
             FROM items, websearch_to_tsquery('english', %(q)s) query
-            WHERE tsv @@ query OR (title || ' ' || detail) ILIKE '%%' || %(q)s || '%%'
+            WHERE tsv @@ query OR (title || ' ' || detail) ILIKE '%%' || %(like)s || '%%'
             LIMIT 50
         ), fused AS (
             SELECT id, sum(1.0 / (60 + r)) AS score
@@ -180,5 +210,6 @@ def search(conn, q: str, limit: int = 10, vector: list[float] | None = None) -> 
         FROM fused f JOIN items i USING (id) JOIN memos m ON m.id = i.memo_id
         ORDER BY f.score DESC LIMIT %(limit)s
         """,
-        {"v": vector, "q": q, "limit": min(int(limit), 50)},
+        {"v": vector, "q": q, "limit": _limit(limit, 10, 50),
+         "like": q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")},
     ).fetchall()

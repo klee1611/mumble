@@ -15,7 +15,7 @@ from mumble import config, db
 
 ROOT = Path(__file__).parent.parent
 FN_DIR = ROOT / "functions/packages/mumble/api"
-TOKEN = "test-token"
+TOKEN = "test-token-that-is-long-enough-0123"
 
 
 @pytest.fixture(scope="module")
@@ -115,3 +115,65 @@ def test_accepts_video_labelled_recordings(fn):
     with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
         assert conn.execute("SELECT mime FROM memos WHERE id=%s", (memo["id"],)).fetchone()[0] == "audio/webm"
         conn.execute("DELETE FROM memos WHERE id=%s", (memo["id"],))
+
+
+# --- security regressions (from the audit) ---
+
+def test_non_ascii_token_is_refused_not_crashed(fn):
+    assert call(fn, "GET", "/digest", token="é€ünïcode")[0] == 401
+
+
+def test_short_placeholder_token_never_authorizes(fn, monkeypatch_module):
+    monkeypatch_module.setenv("MUMBLE_TOKEN", "change-me")
+    try:
+        assert call(fn, "GET", "/digest", token="change-me")[0] == 401
+    finally:
+        monkeypatch_module.setenv("MUMBLE_TOKEN", TOKEN)
+
+
+def test_negative_and_junk_limits(fn):
+    assert call(fn, "GET", "/memos", query="limit=-5")[0] == 200
+    assert call(fn, "GET", "/memos", query="limit=lots")[0] == 200
+
+
+def test_bad_bodies(fn):
+    res = fn.main({"http": {"method": "POST", "path": "/memos", "body": "[1,2]",
+                            "headers": {"Authorization": f"Bearer {TOKEN}"}}})
+    assert res["statusCode"] == 400
+    res = fn.main({"http": {"method": "POST", "path": "/memos", "body": "{nope",
+                            "headers": {"Authorization": f"Bearer {TOKEN}"}}})
+    assert res["statusCode"] == 400
+
+
+def test_database_errors_do_not_leak(fn, monkeypatch_module):
+    monkeypatch_module.setenv("DATABASE_URL", "postgresql://nobody:secret@127.0.0.1:1/nowhere")
+    try:
+        status, body = call(fn, "GET", "/digest")
+    finally:
+        monkeypatch_module.setenv("DATABASE_URL", config.DATABASE_URL)
+    assert status == 500 and body == {"error": "something went wrong"}
+
+
+def test_security_headers(fn):
+    res = fn.main({"http": {"method": "GET", "path": "/digest", "headers": {}}})
+    assert res["headers"]["X-Content-Type-Options"] == "nosniff"
+    assert "frame-ancestors 'none'" in res["headers"]["Content-Security-Policy"]
+
+
+def test_ics_cannot_be_injected(fn):
+    with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+        memo_id = conn.execute("INSERT INTO memos (mime, status) VALUES ('audio/webm', 'done') RETURNING id").fetchone()[0]
+        item_id = conn.execute(
+            "INSERT INTO items (memo_id, kind, title, detail, due_at) VALUES "
+            "(%s, 'event', %s, 'x', '2026-10-27 14:00+00') RETURNING id",
+            (memo_id, "Lunch\r\nATTENDEE:mailto:evil@example.com\rX:1")).fetchone()[0]
+    d = call(fn, "GET", "/digest")[1]
+    link = next(i["ics"] for i in d["items"] if i["id"] == item_id)
+    ics = call(fn, "GET", f"/items/{item_id}/event.ics", token=None, query=link)[1]
+    assert not any(line.startswith(("ATTENDEE", "X:")) for line in ics.split("\r\n"))
+    assert "SUMMARY:Lunch\\nATTENDEE:mailto:evil@example.com\\nX:1" in ics
+
+
+def test_like_wildcards_are_literal(fn):
+    assert call(fn, "GET", "/search", query="q=%25%25")[1] == []
+    assert call(fn, "GET", "/search", query="q=__")[1] == []

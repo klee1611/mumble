@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: mumble
       POSTGRES_DB: mumble
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"  # this machine only
     volumes:
       - pgdata:/var/lib/postgresql/data
 volumes:

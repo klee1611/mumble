@@ -46,7 +46,7 @@ uv sync
 uv run uvicorn mumble.main:app --reload
 ```
 
-Open `http://localhost:8000/?t=<your MUMBLE_TOKEN>`, record something, then tap
+Open `http://localhost:8000/#t=<your MUMBLE_TOKEN>`, record something, then tap
 **Can't wait? Nap now** (or run `uv run python -m mumble.nap`).
 
 The microphone only works on `localhost` or over HTTPS. Locally, search also
@@ -63,7 +63,7 @@ searches by keyword.
    `scripts/deploy-functions.sh`. It prints the API URL.
 4. **Phone app.** Put the API URL in `web/config.js` (`window.MUMBLE_API = "https://.../mumble/api"`),
    push, then `doctl apps create --spec .do/app.yaml`.
-5. On your phone, open `https://<your-app>/?t=<MUMBLE_TOKEN>` once and *Add to Home Screen*.
+5. On your phone, open `https://<your-app>/#t=<MUMBLE_TOKEN>` once and *Add to Home Screen*.
 
 ## Tests
 
