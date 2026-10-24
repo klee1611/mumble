@@ -189,3 +189,8 @@ def test_function_copy_of_core_is_in_sync():
     # App Platform builds the function from functions/ alone, so it ships its
     # own copy of core.py. Refresh it with: cp mumble/core.py functions/packages/mumble/api/core.py
     assert (FN_DIR / "core.py").read_text() == (ROOT / "mumble/core.py").read_text()
+
+
+def test_no_wildcard_cors_by_default(fn):
+    res = fn.main({"http": {"method": "GET", "path": "/digest", "headers": {}}})
+    assert "Access-Control-Allow-Origin" not in res["headers"]

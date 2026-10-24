@@ -23,8 +23,8 @@ jobs:
   nap:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # Secrets are set per step, so the third-party Ollama installer never sees them.
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       MUMBLE_MODEL: gemma4:e2b-it-qat
       MUMBLE_EMBED_MODEL: embeddinggemma
       WHISPER_MODEL: small
@@ -35,6 +35,8 @@ jobs:
 
       - name: Anything to do?
         id: pending
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           n=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM memos WHERE status='pending'" 2>/dev/null || echo 1)
           echo "count=$n" >> "$GITHUB_OUTPUT"
@@ -64,6 +66,8 @@ jobs:
 
       - name: Nap
         if: steps.pending.outputs.count != '0'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           uv sync --no-dev
           uv run --no-dev python -m mumble.nap
@@ -73,6 +77,7 @@ jobs:
       - name: Weekly review
         if: (github.event_name == 'schedule' && steps.pending.outputs.dow == '7') || inputs.review
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PAPERINSTRUMENTS_API_KEY: ${{ secrets.PAPERINSTRUMENTS_API_KEY }}
         run: |
           uv sync --no-dev

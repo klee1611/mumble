@@ -15,6 +15,9 @@ It costs nothing to run.
   plain code turns that into a timestamp. A phrase you never said is thrown away.
 - **Slow on purpose.** CPU only. Nobody is awake at 3 AM to wait for it.
 - **Your audio doesn't stick around.** Each recording is deleted as soon as it's sorted.
+- **One thing leaves for a closed model, and only if you turn it on.** The weekly review sends
+  that week's item titles and details (never audio or transcripts) to Ultramarine by
+  Paper Instruments. No `PAPERINSTRUMENTS_API_KEY`, no review, and nothing leaves.
 
 ```
 Phone PWA ──▶ DigitalOcean App Platform (free static site)

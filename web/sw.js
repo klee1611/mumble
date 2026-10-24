@@ -1,5 +1,5 @@
 // App-shell cache so Mumble opens instantly (and offline) from the home screen.
-const CACHE = "mumble-v4";
+const CACHE = "mumble-v5";
 const SHELL = ["/", "/config.js", "/app.js", "/style.css", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

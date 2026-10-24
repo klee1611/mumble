@@ -1,5 +1,12 @@
 // Mumble PWA: record, upload, read the morning digest, search memory.
 
+// The static host can't send frame-ancestors, so refuse to run inside a frame
+// (a framing page could trick taps on "Done" or "Nah").
+if (window.top !== window.self) {
+  document.documentElement.replaceChildren();
+  throw new Error("Mumble won't run in a frame");
+}
+
 const $ = (sel) => document.querySelector(sel);
 
 // ---------- token ----------

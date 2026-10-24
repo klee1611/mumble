@@ -99,3 +99,20 @@ def test_run_stores_review_and_cost(week):
 def test_no_key_means_no_review(monkeypatch):
     monkeypatch.delenv("PAPERINSTRUMENTS_API_KEY", raising=False)
     assert review.run() is None
+
+
+def test_grounding_survives_malformed_output():
+    known = {1, 2}
+    out = review.grounded({
+        "headline": 42,
+        "keep_saying": [{"text": "bool ids", "item_ids": [True, False]},
+                        {"text": 123, "item_ids": [1]},
+                        {"text": "ids not a list", "item_ids": "1,2"},
+                        {"text": "x" * 5000, "item_ids": [2]}],
+        "slipping": "not a list",
+        "connections": None,
+        "one_thing": ["nope"],
+    }, known)
+    assert out["headline"] == ""
+    assert out["keep_saying"] == [{"text": "x" * 300, "item_ids": [2]}]
+    assert out["slipping"] == [] and out["connections"] == [] and out["one_thing"] is None

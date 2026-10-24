@@ -96,14 +96,18 @@ def _describe(items: list[dict], now: datetime) -> str:
 def grounded(raw: dict, known_ids: set[int]) -> dict:
     """Keep only claims that cite items we actually showed the model."""
     def keep(claim):
-        if not isinstance(claim, dict) or not str(claim.get("text", "")).strip():
+        if not isinstance(claim, dict) or not isinstance(claim.get("text"), str) or not claim["text"].strip():
             return None
-        ids = sorted({i for i in claim.get("item_ids") or [] if isinstance(i, int) and i in known_ids})
-        return {"text": claim["text"].strip(), "item_ids": ids} if ids else None
+        cited = claim.get("item_ids")
+        # type() is int, not isinstance: True and False are ints in Python.
+        ids = sorted({i for i in cited if type(i) is int and i in known_ids}) if isinstance(cited, list) else []
+        return {"text": claim["text"].strip()[:300], "item_ids": ids} if ids else None
 
-    out = {"headline": str(raw.get("headline", "")).strip()[:300]}
+    headline = raw.get("headline")
+    out = {"headline": headline.strip()[:300] if isinstance(headline, str) else ""}
     for key in ("keep_saying", "slipping", "connections"):
-        out[key] = [c for c in map(keep, raw.get(key) or []) if c][:5]
+        claims = raw.get(key)
+        out[key] = [c for c in map(keep, claims if isinstance(claims, list) else []) if c][:5]
     out["one_thing"] = keep(raw.get("one_thing"))
     return out
 

@@ -17,11 +17,15 @@ from psycopg.rows import dict_row
 
 import core
 
+# App Platform serves the app and /api from one origin, so no CORS by default.
+# If the app is hosted elsewhere, set CORS_ORIGIN to that exact origin.
+_origin = os.environ.get("CORS_ORIGIN", "")
 CORS = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": _origin,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
-}
+    "Vary": "Origin",
+} if _origin else {}
 
 # Works whether the function is called directly (/memos) or through an
 # App Platform route (/api/memos): only the tail of the path matters.
