@@ -1,0 +1,14 @@
+# Local stand-in for Tiger Data (Tiger Cloud is Postgres + pgvector + TimescaleDB).
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: mumble
+      POSTGRES_PASSWORD: mumble
+      POSTGRES_DB: mumble
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

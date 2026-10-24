@@ -1,0 +1,28 @@
+[project]
+name = "mumble"
+version = "0.1.0"
+description = "Mumble at your phone all day. Open models sort it out overnight."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3",
+    "httpx>=0.27",
+    "faster-whisper>=1.1",
+    "av>=11,<16",  # faster-whisper passes metadata_errors, removed in newer PyAV
+    "dateparser>=1.2",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

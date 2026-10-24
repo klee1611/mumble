@@ -1,0 +1,112 @@
+"""Calls the DigitalOcean Function handler the way DO does (raw web args),
+against the local docker-compose Postgres. Skipped if that isn't running."""
+
+import base64
+import importlib.util
+import json
+import shutil
+import sys
+from pathlib import Path
+
+import psycopg
+import pytest
+
+from mumble import config, db
+
+ROOT = Path(__file__).parent.parent
+FN_DIR = ROOT / "functions/packages/mumble/api"
+TOKEN = "test-token"
+
+
+@pytest.fixture(scope="module")
+def fn(monkeypatch_module):
+    try:
+        psycopg.connect(config.DATABASE_URL, connect_timeout=2).close()
+    except psycopg.OperationalError:
+        pytest.skip("local Postgres isn't running (docker compose up -d)")
+    db.init()
+    db.close()
+    shutil.copy(ROOT / "mumble/core.py", FN_DIR / "core.py")  # what deploy-functions.sh does
+    sys.path.insert(0, str(FN_DIR))
+    monkeypatch_module.setenv("MUMBLE_TOKEN", TOKEN)
+    monkeypatch_module.setenv("DATABASE_URL", config.DATABASE_URL)
+    spec = importlib.util.spec_from_file_location("mumble_fn", FN_DIR / "__main__.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    yield mod
+    sys.path.remove(str(FN_DIR))
+
+
+@pytest.fixture(scope="module")
+def monkeypatch_module():
+    mp = pytest.MonkeyPatch()
+    yield mp
+    mp.undo()
+
+
+def call(fn, method, path, body=None, token=TOKEN, query=""):
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    res = fn.main({"http": {"method": method, "path": path, "headers": headers, "queryString": query,
+                            "body": json.dumps(body) if body is not None else ""}})
+    out = res["body"]
+    if res["headers"].get("Content-Type") == "application/json":
+        out = json.loads(out)
+    return res["statusCode"], out
+
+
+def test_requires_token(fn):
+    assert call(fn, "GET", "/digest", token="nope")[0] == 401
+
+
+def test_preflight(fn):
+    status = fn.main({"http": {"method": "OPTIONS", "path": "/memos", "headers": {}}})["statusCode"]
+    assert status == 204
+
+
+def test_upload_and_list(fn):
+    audio = base64.b64encode(b"\x1aE\xdf\xa3 fake webm").decode()
+    status, memo = call(fn, "POST", "/api/memos", {"mime": "audio/webm;codecs=opus", "audio": audio})
+    assert status == 200 and memo["status"] == "pending"
+    status, memos = call(fn, "GET", "/memos", query="limit=5")
+    assert status == 200 and memos[0]["id"] == memo["id"]
+
+
+def test_rejects_non_audio_and_huge(fn):
+    assert call(fn, "POST", "/memos", {"mime": "text/html", "audio": "aGk="})[0] == 415
+    big = base64.b64encode(b"x" * (800 * 1024)).decode()
+    assert call(fn, "POST", "/memos", {"mime": "audio/webm", "audio": big})[0] == 413
+
+
+def test_digest_search_patch_ics(fn):
+    with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+        memo_id = conn.execute("INSERT INTO memos (mime, status) VALUES ('audio/webm', 'done') RETURNING id").fetchone()[0]
+        item_id = conn.execute(
+            "INSERT INTO items (memo_id, kind, title, detail, when_text, due_at) VALUES "
+            "(%s, 'event', 'Meeting with Priya', 'about the hackathon', 'Tuesday at 10am', "
+            "'2026-10-27 14:00+00') RETURNING id", (memo_id,)).fetchone()[0]
+
+    status, d = call(fn, "GET", "/digest")
+    assert status == 200 and any(i["id"] == item_id for i in d["items"])
+
+    status, hits = call(fn, "GET", "/search", query="q=priya")
+    assert status == 200 and hits[0]["id"] == item_id
+
+    status, ics = call(fn, "GET", f"/items/{item_id}/event.ics", token=None, query=f"t={TOKEN}")
+    assert status == 200 and "DTSTART:20261027T140000Z" in ics
+
+    status, row = call(fn, "PATCH", f"/items/{item_id}", {"status": "dismissed"})
+    assert status == 200 and row["status"] == "dismissed"
+    assert call(fn, "PATCH", f"/items/{item_id}", {"status": "lol"})[0] == 422
+
+
+def test_unknown_route(fn):
+    assert call(fn, "GET", "/nope")[0] == 404
+
+
+def test_accepts_video_labelled_recordings(fn):
+    audio = base64.b64encode(b"fake").decode()
+    status, memo = call(fn, "POST", "/memos", {"mime": "video/webm", "audio": audio})
+    assert status == 200
+    with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+        assert conn.execute("SELECT mime FROM memos WHERE id=%s", (memo["id"],)).fetchone()[0] == "audio/webm"
+        conn.execute("DELETE FROM memos WHERE id=%s", (memo["id"],))

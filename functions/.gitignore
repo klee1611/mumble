@@ -1,0 +1,4 @@
+.env
+packages/mumble/api/core.py
+packages/mumble/api/virtualenv/
+.deployed/

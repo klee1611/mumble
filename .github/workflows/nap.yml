@@ -1,0 +1,64 @@
+# The night shift. Woken at 3 AM by the DigitalOcean "wake" function
+# (repository_dispatch), or by hand from the Actions tab.
+# Free CPU runner, open models, nobody waiting.
+name: nap
+
+on:
+  repository_dispatch:
+    types: [nap]
+  workflow_dispatch:
+  schedule:
+    - cron: "30 9 * * *"  # backup alarm, in case the 3 AM one didn't ring
+
+concurrency:
+  group: nap
+  cancel-in-progress: false
+
+jobs:
+  nap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MUMBLE_MODEL: gemma4:e2b-it-qat
+      MUMBLE_EMBED_MODEL: embeddinggemma
+      WHISPER_MODEL: small
+      MUMBLE_TZ: America/Toronto
+      OLLAMA_MODELS: /home/runner/.ollama/models
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Anything to do?
+        id: pending
+        run: |
+          n=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM memos WHERE status='pending'" 2>/dev/null || echo 1)
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+          echo "pending memos: $n"
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.pending.outputs.count != '0'
+
+      - name: Cache models
+        if: steps.pending.outputs.count != '0'
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/.ollama/models
+            /home/runner/.cache/huggingface
+          key: models-${{ env.MUMBLE_MODEL }}-${{ env.MUMBLE_EMBED_MODEL }}-whisper-${{ env.WHISPER_MODEL }}
+
+      - name: Start Ollama
+        if: steps.pending.outputs.count != '0'
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo systemctl stop ollama || true
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:11434/api/version && break; sleep 1; done
+          ollama pull "$MUMBLE_MODEL"
+          ollama pull "$MUMBLE_EMBED_MODEL"
+
+      - name: Nap
+        if: steps.pending.outputs.count != '0'
+        run: |
+          uv sync --no-dev
+          uv run --no-dev python -m mumble.nap

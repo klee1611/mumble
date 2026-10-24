@@ -1,0 +1,12 @@
+# DigitalOcean App Platform: the PWA as a free static site.
+# Create with: doctl apps create --spec .do/app.yaml
+name: mumble
+static_sites:
+  - name: web
+    github:
+      repo: klee1611/mumble
+      branch: main
+      deploy_on_push: true
+    source_dir: web
+    index_document: index.html
+    catchall_document: index.html
