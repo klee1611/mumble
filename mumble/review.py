@@ -70,11 +70,12 @@ an empty list beats a made-up pattern. Keep each text under 25 words."""
 def _week(conn, now: datetime) -> list[dict]:
     since = now - timedelta(days=7)
     return conn.execute(
+        # said_at is when the memo was recorded, not when the nap sorted it.
         """SELECT i.id, i.kind, i.title, i.detail, i.when_text, i.due_at, i.status,
-                  i.created_at, m.transcript
+                  m.created_at AS said_at
            FROM items i JOIN memos m ON m.id = i.memo_id
-           WHERE i.created_at >= %s OR (i.status IN ('new', 'approved') AND i.created_at >= %s)
-           ORDER BY i.id""",
+           WHERE m.created_at >= %s OR (i.status IN ('new', 'approved') AND m.created_at >= %s)
+           ORDER BY m.created_at, i.id""",
         (since, now - timedelta(days=30)),
     ).fetchall()
 
@@ -86,7 +87,7 @@ def _describe(items: list[dict], now: datetime) -> str:
         due = f" | due {it['due_at'].astimezone(tz):%a %b %d %H:%M}" if it["due_at"] else ""
         said = f" | said “{it['when_text']}”" if it["when_text"] else ""
         lines.append(
-            f"[{it['id']}] {it['kind']} | {it['status']} | mumbled {it['created_at'].astimezone(tz):%a %b %d}"
+            f"[{it['id']}] {it['kind']} | {it['status']} | mumbled {it['said_at'].astimezone(tz):%a %b %d %H:%M}"
             f"{due}{said} | {it['title']}" + (f" — {it['detail']}" if it["detail"] else "")
         )
     return "\n".join(lines)
