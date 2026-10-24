@@ -183,3 +183,9 @@ def test_ics_cannot_be_injected(fn):
 def test_like_wildcards_are_literal(fn):
     assert call(fn, "GET", "/search", query="q=%25%25")[1] == []
     assert call(fn, "GET", "/search", query="q=__")[1] == []
+
+
+def test_function_copy_of_core_is_in_sync():
+    # App Platform builds the function from functions/ alone, so it ships its
+    # own copy of core.py. Refresh it with: cp mumble/core.py functions/packages/mumble/api/core.py
+    assert (FN_DIR / "core.py").read_text() == (ROOT / "mumble/core.py").read_text()
