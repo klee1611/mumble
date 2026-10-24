@@ -51,15 +51,19 @@ distinct thing worth keeping.
 - detail: useful specifics beyond the title (who, why, which one), or "".
   Never repeat the title, and never put the time words here: they go in when.
 
+If they say they finished something ("got the scarf", "called mom"), add a
+note titled "Done: ..." so it is not left on their list.
 Skip filler, false starts and anything they took back ("actually never mind").
 Go through every sentence: one memo often mixes unrelated things. If nothing is
 worth keeping, return an empty list.
 
 Example transcript: "uh book a haircut for Friday at 3, oh and the gate code at
-mom's is 4471. also get batteries, no wait, we have batteries."
+mom's is 4471. returned the library books finally. also get batteries, no wait,
+we have batteries."
 Example items:
 [{{"kind": "event", "title": "Haircut", "when": "Friday at 3", "detail": ""}},
- {{"kind": "note", "title": "Gate code at mom's", "when": "", "detail": "4471"}}]
+ {{"kind": "note", "title": "Gate code at mom's", "when": "", "detail": "4471"}},
+ {{"kind": "note", "title": "Done: returned the library books", "when": "", "detail": ""}}]
 
 Transcript:
 \"\"\"{transcript}\"\"\"
@@ -89,8 +93,10 @@ def resolve_when(phrase: str, transcript: str, recorded_at: datetime) -> datetim
     tz = ZoneInfo(config.TZ)
     base = recorded_at.astimezone(tz).replace(tzinfo=None)
     when = _parse(phrase, base)
-    if when is None or CLOCK.search(phrase):
-        return when
+    if when is None:
+        return None
+    if CLOCK.search(phrase):
+        return when.replace(tzinfo=tz)
     # "tomorrow" alone would otherwise inherit the time the memo was recorded.
     context = transcript.lower()
     hour = next((h for rx, h in PART_OF_DAY if re.search(rx, phrase.lower())), None)
@@ -98,21 +104,37 @@ def resolve_when(phrase: str, transcript: str, recorded_at: datetime) -> datetim
         idx = context.find(phrase.lower())
         nearby = context[idx: idx + len(phrase) + 20] if idx >= 0 else ""
         hour = next((h for rx, h in PART_OF_DAY if re.search(rx, nearby)), 9)
-    return when.replace(hour=hour, minute=0, second=0, microsecond=0)
+    # Wall-clock time first, zone last: zoneinfo then picks EDT or EST for that
+    # day (Nov 1 2026 is the switch), instead of reusing the offset of today.
+    return when.replace(hour=hour, minute=0, second=0, microsecond=0, tzinfo=tz)
+
+
+BARE_HOUR = re.compile(r"\b(at\s+)?(\d{1,2})(:\d\d)?\b(?!\s*(am|pm|a\.m\.|p\.m\.|o'?clock|:))", re.I)
+
+
+def _with_meridiem(m: re.Match) -> str:
+    # "at 6" means 6 PM to most people; dateparser reads it as the 6th of a month.
+    hour = int(m.group(2))
+    if not 1 <= hour <= 12:
+        return m.group(0)
+    half = "am" if 8 <= hour <= 11 else "pm"
+    return f"{m.group(1) or ''}{hour}{m.group(3) or ':00'} {half}"
 
 
 def _parse(phrase: str, base: datetime) -> datetime | None:
     phrase = re.sub(r"\b(morning|afternoon|evening|tonight|night|after work|lunch)\b", "", phrase, flags=re.I).strip()
+    # "before Saturday" / "by Friday": the deadline is that day.
+    phrase = re.sub(r"^(before|by|until|no later than)\s+", "", phrase, flags=re.I)
+    # A bare month ("December") would borrow today's day of the month; mean the 1st.
+    if re.fullmatch(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*", phrase, re.I):
+        phrase = f"{phrase} 1st"
+    if re.search(r"\b(at\s+)?\d", phrase) and not re.search(r"\d{3,}|\d+(st|nd|rd|th)\b", phrase):
+        phrase = BARE_HOUR.sub(_with_meridiem, phrase)
     if not phrase:
         phrase = "today"
     return dateparser.parse(
         phrase,
-        settings={
-            "RELATIVE_BASE": base,
-            "PREFER_DATES_FROM": "future",
-            "TIMEZONE": config.TZ,
-            "RETURN_AS_TIMEZONE_AWARE": True,
-        },
+        settings={"RELATIVE_BASE": base, "PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": False},
     )
 
 
