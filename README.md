@@ -5,7 +5,8 @@ Mumble at your phone all day. Open models sort it out overnight.
 Record rambling voice memos whenever something pops into your head. At 3 AM, a
 free GitHub Actions runner wakes up, transcribes them with Whisper, and has
 Gemma turn them into to-dos, calendar events and notes. In the morning you open
-one screen and tap **Done**, **Add to calendar** or **Nah**.
+one screen and tap **Done**, **Keep**, **Add to calendar** or **Dismiss** (each with Undo).
+Until then you can play a memo back to check it saved; kept notes and search live in **Remember**.
 
 It costs nothing to run.
 
