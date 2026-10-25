@@ -85,3 +85,13 @@ def test_clock_time_across_the_dst_change():
 def test_before_a_month_is_the_first():
     t = "renew my passport before December"
     assert local(resolve_when("before December", t, WED_EVENING)) == datetime(2026, 12, 1, 9, 0)
+
+
+def test_a_code_is_not_a_date():
+    t = "the gate code is 4471"
+    assert resolve_when("4471", t, RECORDED) is None
+
+
+def test_far_future_is_dropped():
+    t = "renew the passport in 2091"
+    assert resolve_when("in 2091", t, RECORDED) is None

@@ -85,15 +85,18 @@ PART_OF_DAY = [
     (r"\b(tonight|night)\b", 20),
 ]
 CLOCK = re.compile(r"\d\s*(am|pm|a\.m\.|p\.m\.|o'?clock)|\d:\d\d|\bat \d", re.I)
+# "4471" or "555 0123" is a code or a phone number, not a time.
+JUST_NUMBERS = re.compile(r"[\d\s#.\-]+")
+MAX_YEARS_AHEAD = 2
 
 
 def resolve_when(phrase: str, transcript: str, recorded_at: datetime) -> datetime | None:
-    if not phrase or not _said(phrase, transcript):
+    if not phrase or not _said(phrase, transcript) or JUST_NUMBERS.fullmatch(phrase):
         return None
     tz = ZoneInfo(config.TZ)
     base = recorded_at.astimezone(tz).replace(tzinfo=None)
     when = _parse(phrase, base)
-    if when is None:
+    if when is None or when.year > base.year + MAX_YEARS_AHEAD:
         return None
     if CLOCK.search(phrase):
         return when.replace(tzinfo=tz)
@@ -164,6 +167,10 @@ def extract(transcript: str, recorded_at: datetime, client: httpx.Client) -> lis
         when_text = (it.get("when") or "").strip()
         detail = (it.get("detail") or "").strip()
         if not _said(when_text, transcript):
+            when_text = ""
+        if when_text and JUST_NUMBERS.fullmatch(when_text):
+            # Small models sometimes file a gate code under "when".
+            detail = detail or when_text
             when_text = ""
         due = resolve_when(when_text, transcript, recorded_at)
         if due is None and len(detail.split()) <= 6:
