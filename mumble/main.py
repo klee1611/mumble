@@ -118,6 +118,10 @@ def _run_nap() -> None:
 
 @app.post("/api/nap")
 def nap_now(acct: dict = Depends(account)):
+    # A nap sorts everyone's memos and keeps the CPU busy for minutes, so only
+    # the person at this machine (dev mode) may start one. Signed-in accounts wait for 3 AM.
+    if not _dev_mode():
+        return {"started": False, "reason": "naps run at 3 AM"}
     if not _nap_lock.acquire(blocking=False):
         return {"started": False, "reason": "already napping"}
     threading.Thread(target=_run_nap, daemon=True).start()
@@ -127,7 +131,7 @@ def nap_now(acct: dict = Depends(account)):
 @app.get("/api/nap")
 def nap_status(acct: dict = Depends(account)):
     with db.connect() as conn:
-        status = core.nap_status(conn, acct["id"], can_nap_now=True)
+        status = core.nap_status(conn, acct["id"], can_nap_now=_dev_mode())
     return {**status, "napping": status["napping"] or _nap_lock.locked()}
 
 
