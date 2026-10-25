@@ -23,4 +23,4 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    do_GET = do_POST = do_PATCH = do_OPTIONS = _serve
+    do_GET = do_POST = do_PATCH = do_DELETE = do_OPTIONS = _serve

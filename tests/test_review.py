@@ -10,6 +10,8 @@ from psycopg.rows import dict_row
 
 from mumble import config, core, db, review
 
+ACCOUNT = "test|reviewer"
+
 
 def test_grounding_drops_claims_without_real_citations():
     raw = {
@@ -64,13 +66,16 @@ def week():
     db.init()
     db.close()
     with psycopg.connect(config.DATABASE_URL, autocommit=True, row_factory=dict_row) as conn:
-        memo = conn.execute("INSERT INTO memos (mime, status, transcript) VALUES "
-                            "('audio/webm', 'done', 'test') RETURNING id").fetchone()["id"]
-        ids = [conn.execute("INSERT INTO items (memo_id, kind, title) VALUES (%s, 'todo', %s) RETURNING id",
-                            (memo, t)).fetchone()["id"] for t in ("Call the dentist", "Call dentist about tooth")]
+        conn.execute("INSERT INTO accounts (id, email) VALUES (%s, 'reviewer@example.test') "
+                     "ON CONFLICT DO NOTHING", (ACCOUNT,))
+        memo = conn.execute("INSERT INTO memos (account_id, mime, status, transcript) VALUES "
+                            "(%s, 'audio/webm', 'done', 'test') RETURNING id", (ACCOUNT,)).fetchone()["id"]
+        ids = [conn.execute("INSERT INTO items (memo_id, account_id, kind, title) VALUES (%s, %s, 'todo', %s) "
+                            "RETURNING id", (memo, ACCOUNT, t)).fetchone()["id"]
+               for t in ("Call the dentist", "Call dentist about tooth")]
         yield ids
-        conn.execute("DELETE FROM reviews WHERE body->>'headline' = 'Test week.'")
-        conn.execute("DELETE FROM memos WHERE id = %s", (memo,))
+        conn.execute("DELETE FROM accounts WHERE id = %s", (ACCOUNT,))
+    db.close()
 
 
 def test_run_stores_review_and_cost(week):
@@ -81,7 +86,7 @@ def test_run_stores_review_and_cost(week):
         "slipping": [], "connections": [],
         "one_thing": {"text": "Call at 9 tomorrow", "item_ids": [a]},
     })
-    result = review.run(client=client, now=datetime.now(timezone.utc))
+    result = review.review_account(client, ACCOUNT, datetime.now(timezone.utc))
 
     sent = client.sent
     assert sent["model"] == "ultramarine-1-flash"
@@ -91,9 +96,12 @@ def test_run_stores_review_and_cost(week):
     assert result["cost_usd"] == pytest.approx(0.000306)
 
     with psycopg.connect(config.DATABASE_URL, row_factory=dict_row) as conn:
-        latest = core.latest_review(conn)
+        latest = core.latest_review(conn, ACCOUNT)
+        assert core.latest_review(conn, "test|someone-else") is None
     assert latest["body"]["headline"] == "Test week."
     assert [i["title"] for i in latest["body"]["keep_saying"][0]["items"]] == ["Call the dentist", "Call dentist about tooth"]
+    # One a week: running it again the same day costs nothing.
+    assert review.review_account(client, ACCOUNT, datetime.now(timezone.utc)) is None
 
 
 def test_no_key_means_no_review(monkeypatch):

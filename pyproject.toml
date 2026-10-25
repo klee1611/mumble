@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 # Only what the serverless API needs: Vercel installs these and nothing else.
 dependencies = [
     "psycopg[binary]>=3.2",
+    "pyjwt[crypto]>=2.10",
 ]
 
 [dependency-groups]

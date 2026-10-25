@@ -1,7 +1,8 @@
 """The overnight job. Cron runs `python -m mumble.nap` at 3 AM.
 
-Processes every pending memo, one at a time, on whatever hardware is around.
-On the Droplet that is a CPU, which is fine: nobody is awake to wait for it.
+Processes pending memos one at a time on a CPU, which is fine: nobody is awake
+to wait for it. Each account gets at most MEMOS_PER_ACCOUNT per night, so one
+busy account can't push everyone else's memos past breakfast.
 """
 
 import logging
@@ -16,6 +17,8 @@ from .structure import embed, extract
 from .transcribe import transcribe
 
 log = logging.getLogger("mumble.nap")
+
+MEMOS_PER_ACCOUNT = 25  # per night; the rest wait for tomorrow
 
 
 def _transcribe_memo(memo_id: int) -> tuple[str, float]:
@@ -37,8 +40,14 @@ def run() -> dict:
             "INSERT INTO naps (model) VALUES (%s) RETURNING id", (config.MODEL,)
         ).fetchone()["id"]
         pending = conn.execute(
-            "SELECT id, mime, created_at FROM memos WHERE status = 'pending' ORDER BY id"
+            """SELECT id, account_id, mime, created_at FROM (
+                   SELECT *, row_number() OVER (PARTITION BY account_id ORDER BY id) AS nth
+                   FROM memos WHERE status = 'pending') m
+               WHERE nth <= %s ORDER BY id""",
+            (MEMOS_PER_ACCOUNT,),
         ).fetchall()
+        # Rate-limit counters only matter for the current minute.
+        conn.execute("DELETE FROM requests WHERE minute < now() - interval '1 hour'")
 
     stats = {"memos": 0, "items": 0, "audio_s": 0.0, "words": 0, "failed": 0}
     started = time.monotonic()
@@ -66,9 +75,9 @@ def run() -> dict:
                 )
                 for item, vec in zip(items, vectors):
                     conn.execute(
-                        "INSERT INTO items (memo_id, kind, title, detail, when_text, due_at, embedding) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s::vector)",
-                        (memo["id"], item["kind"], item["title"], item["detail"],
+                        "INSERT INTO items (memo_id, account_id, kind, title, detail, when_text, due_at, embedding) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector)",
+                        (memo["id"], memo["account_id"], item["kind"], item["title"], item["detail"],
                          item["when_text"], item["due_at"], vec),
                     )
             stats["memos"] += 1
@@ -77,7 +86,7 @@ def run() -> dict:
             stats["words"] += len(text.split())
             log.info("memo %s: %d words -> %d items", memo["id"], len(text.split()), len(items))
 
-        # Let the Droplet have its RAM back until tomorrow night.
+        # Hand the RAM back (matters on a laptop; the CI runner is thrown away anyway).
         for model in (config.MODEL, config.EMBED_MODEL):
             try:
                 client.post(f"{config.OLLAMA_URL}/api/generate",

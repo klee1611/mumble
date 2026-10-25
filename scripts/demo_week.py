@@ -2,8 +2,10 @@
 `say`, backdated, and left *pending* so the real nap pipeline (Whisper, Gemma)
 and the weekly review (Ultramarine) process them like any other memos.
 
-    uv run python scripts/demo_week.py            # into DATABASE_URL
-    uv run python scripts/demo_week.py --wipe     # remove the demo week again
+    uv run python scripts/demo_week.py you@example.com          # into that account
+    uv run python scripts/demo_week.py you@example.com --wipe   # remove it again
+
+The account must exist: sign in on the app once first.
 
 Demo memos are tagged with mime 'audio/webm; demo' so --wipe only removes them.
 """
@@ -56,16 +58,25 @@ def speak(text: str) -> bytes:
 
 
 def main() -> None:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if len(args) != 1:
+        sys.exit(__doc__)
     with psycopg.connect(config.DATABASE_URL, row_factory=dict_row, autocommit=True) as conn:
+        row = conn.execute("SELECT * FROM accounts WHERE email = %s", (args[0].lower(),)).fetchone()
+        if not row:
+            sys.exit(f"no account for {args[0]}; sign in on the app first")
+        account = {"id": row["id"], "email": row["email"], "quota": core._quota(row)}
         if "--wipe" in sys.argv:
-            n = conn.execute("DELETE FROM memos WHERE mime = %s", (DEMO_MIME,)).rowcount
+            n = conn.execute("DELETE FROM memos WHERE mime = %s AND account_id = %s",
+                             (DEMO_MIME, account["id"])).rowcount
             print(f"removed {n} demo memos (and their items)")
             return
-        if conn.execute("SELECT 1 FROM memos WHERE mime = %s LIMIT 1", (DEMO_MIME,)).fetchone():
+        if conn.execute("SELECT 1 FROM memos WHERE mime = %s AND account_id = %s LIMIT 1",
+                        (DEMO_MIME, account["id"])).fetchone():
             sys.exit("demo week already seeded; run with --wipe first")
         for when, text in WEEK:
             audio = speak(text)
-            memo = core.add_memo(conn, "audio/webm", base64.b64encode(audio).decode())
+            memo = core.add_memo(conn, account, "audio/webm", base64.b64encode(audio).decode())
             at = datetime.strptime(when, "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
             conn.execute("UPDATE memos SET created_at = %s, mime = %s WHERE id = %s",
                          (at, DEMO_MIME, memo["id"]))

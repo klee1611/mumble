@@ -6,7 +6,8 @@ thing you keep saying you'll do, what's slipping, which notes belong together.
 
 Every claim must cite the items it's based on. A claim that cites nothing, or
 cites an item that doesn't exist, is thrown away. Runs Sundays from the nap
-job, or `python -m mumble.review`.
+job, or `python -m mumble.review`: one review per account, at most one a week,
+reading at most MAX_ITEMS items, so the bill has a ceiling.
 """
 
 import json
@@ -26,6 +27,8 @@ log = logging.getLogger("mumble.review")
 BASE_URL = "https://api.paperinstruments.com/v1"
 MODEL = "ultramarine-1-flash"
 MAX_OUTPUT_TOKENS = 6000  # caps the reservation against the prepaid balance
+MAX_ITEMS = 200           # caps the input: about 10k tokens
+MIN_DAYS_BETWEEN = 6      # one review a week per account, even if run by hand
 
 # Per token, in nanodollars (from GET /v1/pricing). Used to report what each review cost.
 PRICE_INPUT = 150
@@ -67,16 +70,19 @@ cite ids that appear below. If a section has nothing real, leave it empty:
 an empty list beats a made-up pattern. Keep each text under 25 words."""
 
 
-def _week(conn, now: datetime) -> list[dict]:
+def _week(conn, account_id: str, now: datetime) -> list[dict]:
     since = now - timedelta(days=7)
     return conn.execute(
         # said_at is when the memo was recorded, not when the nap sorted it.
-        """SELECT i.id, i.kind, i.title, i.detail, i.when_text, i.due_at, i.status,
-                  m.created_at AS said_at
-           FROM items i JOIN memos m ON m.id = i.memo_id
-           WHERE m.created_at >= %s OR (i.status IN ('new', 'approved') AND m.created_at >= %s)
-           ORDER BY m.created_at, i.id""",
-        (since, now - timedelta(days=30)),
+        """SELECT * FROM (
+               SELECT i.id, i.kind, i.title, i.detail, i.when_text, i.due_at, i.status,
+                      m.created_at AS said_at
+               FROM items i JOIN memos m ON m.id = i.memo_id
+               WHERE i.account_id = %s
+                 AND (m.created_at >= %s OR (i.status IN ('new', 'approved') AND m.created_at >= %s))
+               ORDER BY m.created_at DESC, i.id DESC LIMIT %s) newest
+           ORDER BY said_at, id""",
+        (account_id, since, now - timedelta(days=30), MAX_ITEMS),
     ).fetchall()
 
 
@@ -119,20 +125,16 @@ def cost_usd(usage) -> float:
     return nanodollars / 1e9
 
 
-def run(client: OpenAI | None = None, now: datetime | None = None) -> dict | None:
-    now = now or datetime.now(timezone.utc)
-    if client is None and not os.environ.get("PAPERINSTRUMENTS_API_KEY"):
-        log.info("no PAPERINSTRUMENTS_API_KEY; skipping the weekly review")
-        return None
-    db.init()
+def review_account(client: OpenAI, account_id: str, now: datetime) -> dict | None:
     with db.connect() as conn:
-        items = _week(conn, now)
+        recent = conn.execute(
+            "SELECT 1 FROM reviews WHERE account_id = %s AND created_at > %s",
+            (account_id, now - timedelta(days=MIN_DAYS_BETWEEN)),
+        ).fetchone()
+        items = [] if recent else _week(conn, account_id, now)
     if len(items) < 2:
-        log.info("only %d items this week; nothing to review", len(items))
-        db.close()
         return None
 
-    client = client or OpenAI(base_url=BASE_URL, api_key=os.environ["PAPERINSTRUMENTS_API_KEY"])
     res = client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "system", "content": SYSTEM},
@@ -152,14 +154,30 @@ def run(client: OpenAI | None = None, now: datetime | None = None) -> dict | Non
     }
     with db.connect() as conn:
         rid = conn.execute(
-            "INSERT INTO reviews (model, items_read, input_tokens, output_tokens, cost_usd, body) "
-            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-            (MODEL, row["items_read"], row["input_tokens"], row["output_tokens"], row["cost_usd"], Jsonb(review)),
+            "INSERT INTO reviews (account_id, model, items_read, input_tokens, output_tokens, cost_usd, body) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (account_id, MODEL, row["items_read"], row["input_tokens"], row["output_tokens"],
+             row["cost_usd"], Jsonb(review)),
         ).fetchone()["id"]
-    db.close()
     log.info("review %s: %d items, %d in / %d out tokens, $%.6f",
              rid, row["items_read"], row["input_tokens"], row["output_tokens"], row["cost_usd"])
     return {**row, "id": rid, "review": review}
+
+
+def run(client: OpenAI | None = None, now: datetime | None = None) -> list[dict] | None:
+    now = now or datetime.now(timezone.utc)
+    if client is None and not os.environ.get("PAPERINSTRUMENTS_API_KEY"):
+        log.info("no PAPERINSTRUMENTS_API_KEY; skipping the weekly review")
+        return None
+    client = client or OpenAI(base_url=BASE_URL, api_key=os.environ["PAPERINSTRUMENTS_API_KEY"])
+    db.init()
+    with db.connect() as conn:
+        accounts = [r["id"] for r in conn.execute(
+            "SELECT id FROM accounts WHERE NOT disabled ORDER BY created_at").fetchall()]
+    done = [r for r in (review_account(client, a, now) for a in accounts) if r]
+    db.close()
+    log.info("%d reviews, $%.6f in total", len(done), sum(r["cost_usd"] for r in done))
+    return done
 
 
 if __name__ == "__main__":

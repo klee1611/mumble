@@ -96,13 +96,13 @@ button { cursor: pointer; }
 
 /* search */
 .search { display: flex; gap: 8px; margin-bottom: 18px; }
-.search input, #login-form input {
+.search input {
   flex: 1; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--card);
 }
-.search button, #login-form button {
+.search button, #sign-in {
   border: none; border-radius: 14px; padding: 12px 18px; background: var(--moss); color: #fff;
 }
-#login-form { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+#sign-in { width: 100%; margin: 18px 0 10px; }
 .said { font-size: 13px; color: var(--muted); margin-top: 6px; }
 
 /* tabs */
@@ -118,3 +118,14 @@ nav button {
 }
 nav button span { font-size: 12px; }
 nav button[aria-current="page"] { color: var(--moss); background: var(--moss-soft); }
+
+.small { font-size: 0.85rem; }
+.quota { font-size: 0.85rem; }
+.meter { display: grid; grid-template-columns: 8.5rem 1fr 6.5rem; gap: 0.5rem; align-items: center; margin: 0.4rem 0; }
+.meter .muted { text-align: right; font-size: 0.85rem; }
+.meter progress { width: 100%; height: 0.6rem; accent-color: var(--moss); }
+#me:empty { display: none; }
+#me h2 { margin-top: 0; }
+#me .actions { margin-top: 0.8rem; display: flex; flex-wrap: wrap; gap: 8px; }
+#me .actions button { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; background: transparent; }
+#me .actions .no { color: #a34a3a; border-color: currentColor; }

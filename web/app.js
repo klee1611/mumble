@@ -9,28 +9,66 @@ if (window.top !== window.self) {
 
 const $ = (sel) => document.querySelector(sel);
 
-// ---------- token ----------
-// Setup link is https://<app>/#t=<token>. A #fragment never leaves the
-// browser, so the token can't end up in server or CDN logs.
-const setup = new URLSearchParams(location.hash.slice(1)).get("t");
-if (setup) {
-  localStorage.setItem("mumble-token", setup);
-  history.replaceState(null, "", "/");
-}
-const token = () => localStorage.getItem("mumble-token") || "";
+// ---------- sign-in ----------
+// Auth0 (OAuth 2 + PKCE). The API only accepts short-lived access tokens; the
+// SDK refreshes them with a rotating refresh token. Config is in config.js.
+import { createAuth0Client } from "/vendor/auth0-spa-js-2.28.2.esm.js";
 
-const API = (window.MUMBLE_API || "").replace(/\/$/, "");
+const CFG = window.MUMBLE || {};
+const API = (CFG.api || "").replace(/\/$/, "");
 const MAX_SECONDS = 300;
 const MAX_BYTES = 750 * 1024;
+let auth0 = null;
+
+async function setupAuth() {
+  if (CFG.dev) return true; // local dev server without Auth0
+  auth0 = await createAuth0Client({
+    domain: CFG.auth0.domain,
+    clientId: CFG.auth0.client_id,
+    authorizationParams: {
+      redirect_uri: location.origin,
+      audience: CFG.auth0.audience,
+      scope: "openid profile email offline_access",
+    },
+    // Remembered across app launches, so the home-screen app doesn't sign you
+    // out every time. Refresh tokens rotate: a stolen one stops working once used.
+    cacheLocation: "localstorage",
+    useRefreshTokens: true,
+    useRefreshTokensFallback: false,
+  });
+  const q = new URLSearchParams(location.search);
+  if (q.has("code") && q.has("state")) {
+    try {
+      await auth0.handleRedirectCallback();
+    } catch (err) {
+      toast(`Sign-in didn't work: ${err.message}`);
+    }
+    history.replaceState(null, "", "/");
+  } else if (q.has("error")) {
+    toast(q.get("error_description") || "Sign-in didn't work.");
+    history.replaceState(null, "", "/");
+  }
+  return auth0.isAuthenticated();
+}
+
+async function bearer() {
+  if (!auth0) return {};
+  try {
+    return { Authorization: `Bearer ${await auth0.getTokenSilently()}` };
+  } catch {
+    showLogin();
+    throw new Error("Sign in again");
+  }
+}
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
     ...opts,
-    headers: { ...(opts.headers || {}), Authorization: `Bearer ${token()}` },
+    headers: { ...(opts.headers || {}), ...(await bearer()) },
   });
   if (res.status === 401) {
     showLogin();
-    throw new Error("Need a token");
+    throw new Error("Sign in again");
   }
   if (!res.ok) {
     const text = await res.text();
@@ -62,13 +100,7 @@ function showLogin() {
   $("#login").hidden = false;
 }
 
-$("#login-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  localStorage.setItem("mumble-token", $("#token").value.trim());
-  $("#login").hidden = true;
-  $("#tabs").hidden = false;
-  show("mumble");
-});
+$("#sign-in").addEventListener("click", () => auth0.loginWithRedirect());
 
 // ---------- tabs ----------
 function show(name) {
@@ -78,6 +110,7 @@ function show(name) {
   );
   if (name === "mumble") loadPile();
   if (name === "morning") loadDigest();
+  if (name === "remember") loadMe();
 }
 document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));
 
@@ -182,7 +215,7 @@ const fmtDay = (iso) =>
   new Date(iso).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 async function loadPile() {
-  const [memos, nap] = await Promise.all([api("/api/memos?limit=20"), api("/api/nap")]);
+  const [memos, nap, me] = await Promise.all([api("/api/memos?limit=20"), api("/api/nap"), api("/api/me")]);
   const pending = memos.filter((m) => m.status === "pending");
   const recent = memos.filter((m) => m.status !== "pending").slice(0, 5);
 
@@ -207,6 +240,9 @@ async function loadPile() {
       ? el("ul", {}, pending.map((m) => el("li", {}, `Memo at ${fmtTime(m.created_at)}`, el("span", { class: "pill" }, "sleeping"))))
       : el("p", { class: "muted" }, "Empty. Mumble something."),
     el("p", { class: "muted" }, "Sorted overnight at 3 AM, slowly and steadily."),
+    el("p", { class: "muted quota" },
+      `Today: ${me.usage.memos_24h} of ${me.quota.memos_per_day} memos · ` +
+      `${me.usage.audio_mb_24h} of ${me.quota.audio_mb_per_day} MB`),
     recent.length
       ? el("ul", {}, recent.map((m) =>
           el("li", {}, `Memo at ${fmtTime(m.created_at)}`,
@@ -322,7 +358,49 @@ $("#search-form").addEventListener("submit", async (e) => {
   }
 });
 
+// ---------- you ----------
+function meter(label, used, most, unit = "") {
+  return el("div", { class: "meter" },
+    el("span", {}, label),
+    el("progress", { max: String(most), value: String(Math.min(used, most)) }),
+    el("span", { class: "muted" }, `${used}${unit} / ${most}${unit}`));
+}
+
+async function loadMe() {
+  const me = await api("/api/me");
+  let armed = false;
+  const del = el("button", {
+    class: "no",
+    onclick: async () => {
+      // Two taps instead of a pop-up: the first one arms it.
+      if (!armed) {
+        armed = true;
+        del.textContent = "Tap again to delete every memo, item and review";
+        setTimeout(() => { armed = false; del.textContent = "Delete my account"; }, 5000);
+        return;
+      }
+      await api("/api/account", { method: "DELETE" });
+      if (auth0) auth0.logout({ logoutParams: { returnTo: location.origin } });
+    },
+  }, "Delete my account");
+  $("#me").replaceChildren(
+    el("h2", {}, "You"),
+    el("p", { class: "muted" }, me.email),
+    meter("Memos today", me.usage.memos_24h, me.quota.memos_per_day),
+    meter("Audio today", me.usage.audio_mb_24h, me.quota.audio_mb_per_day, " MB"),
+    meter("Unsorted", me.usage.pending, me.quota.pending_max),
+    el("div", { class: "actions" },
+      auth0 ? el("button", { onclick: () => auth0.logout({ logoutParams: { returnTo: location.origin } }) }, "Sign out") : null,
+      del)
+  );
+}
+
 // ---------- boot ----------
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
-if (!token()) showLogin();
-else show(new URLSearchParams(location.hash.slice(1)).get("tab") || "mumble");
+setupAuth().then((signedIn) => {
+  if (!signedIn) showLogin();
+  else show(new URLSearchParams(location.hash.slice(1)).get("tab") || "mumble");
+}).catch((err) => {
+  showLogin();
+  toast(`Couldn't reach sign-in: ${err.message}`);
+});
