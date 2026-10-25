@@ -20,19 +20,35 @@
     <div id="whoami" class="whoami" hidden>
       <span class="dot" aria-hidden="true"></span>
       <span id="whoami-text"></span>
-      <button id="sign-out" type="button" class="link">Sign out</button>
+      <button id="open-account" type="button" class="link">Account</button>
     </div>
+
+    <p id="boot" class="boot muted">Waking up…</p>
 
     <section id="login" hidden>
       <h1>Mumble</h1>
-      <p class="muted">Say it now. Sort it never. Sign in once; your phone remembers.</p>
+      <p class="muted">Say it now. Sort it never.</p>
+      <ol class="how">
+        <li><strong>Mumble</strong> whatever's on your mind, whenever. No typing, no sorting.</li>
+        <li><strong>At 3 AM</strong> open models listen, slowly, and pull out to-dos, events and notes.</li>
+        <li><strong>In the morning</strong> it's all waiting, sorted. Tap Done, Keep or Dismiss.</li>
+      </ol>
       <button id="sign-in" type="button">Sign in</button>
       <p id="login-error" class="login-error" role="alert" hidden></p>
-      <p id="login-note" class="muted small">Your memos are only ever shown to you. Each account gets
-        20 memos a day, and you can delete everything in one tap.</p>
+      <p id="login-note" class="muted small">Sign in once; your phone remembers. Your memos are only
+        ever shown to you, each account gets 20 memos a day, and you can delete everything at any time.</p>
     </section>
 
-    <section id="tab-mumble" class="tab">
+    <section id="account" hidden>
+      <button id="back" type="button" class="link back">← Back</button>
+      <header>
+        <h1>Your account</h1>
+        <p id="account-email" class="muted"></p>
+      </header>
+      <div id="me" class="card"></div>
+    </section>
+
+    <section id="tab-mumble" class="tab" hidden>
       <header>
         <h1>Mumble</h1>
         <p class="muted">Say it now. Sort it never.</p>
@@ -50,7 +66,6 @@
       </label>
 
       <div id="pile" class="card pile"></div>
-      <p id="toast" class="toast" role="status" aria-live="polite"></p>
     </section>
 
     <section id="tab-morning" class="tab" hidden>
@@ -67,16 +82,22 @@
         <h1>What did I say?</h1>
         <p class="muted">Search everything you ever mumbled.</p>
       </header>
-      <form id="search-form" class="search">
-        <input id="q" type="search" placeholder="the dentist, that blog idea…" minlength="2" required>
+      <form id="search-form" class="search" role="search">
+        <input id="q" type="search" placeholder="the dentist, that blog idea…" minlength="2" required
+               aria-label="Search your memos">
         <button type="submit">Find</button>
       </form>
-      <div id="results"></div>
-      <div id="me" class="card"></div>
+      <div id="results" aria-live="polite"></div>
+      <div id="kept"></div>
     </section>
   </main>
 
-  <nav id="tabs">
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+    <span id="toast-text"></span>
+    <button id="toast-action" type="button" class="link" hidden></button>
+  </div>
+
+  <nav id="tabs" hidden>
     <button data-tab="mumble" aria-current="page">🎙️<span>Mumble</span></button>
     <button data-tab="morning">☀️<span>Morning</span></button>
     <button data-tab="remember">🔎<span>Remember</span></button>

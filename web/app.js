@@ -90,8 +90,32 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-function toast(msg) {
-  $("#toast").textContent = msg;
+// One toast for every screen, just above the tabs. An optional action (Undo).
+let toastTimer = null;
+function toast(msg, action = null, ms = 5000) {
+  clearTimeout(toastTimer);
+  $("#toast-text").textContent = msg;
+  const btn = $("#toast-action");
+  btn.hidden = !action;
+  btn.onclick = null;
+  if (action) {
+    btn.textContent = action.label;
+    btn.onclick = () => { $("#toast").hidden = true; action.run(); };
+  }
+  $("#toast").hidden = false;
+  toastTimer = setTimeout(() => ($("#toast").hidden = true), action ? ms * 1.6 : ms);
+}
+
+// A screen that couldn't load says so and offers a retry, instead of staying blank.
+async function guard(target, load) {
+  try {
+    await load();
+  } catch (err) {
+    if (err.message === "Sign in again") return;
+    target.replaceChildren(el("div", { class: "card trouble" },
+      el("p", {}, `Couldn't load this: ${err.message}`),
+      el("button", { class: "ghost", onclick: () => guard(target, load) }, "Try again")));
+  }
 }
 
 // Shown on the sign-in screen, where the toast (on the Mumble tab) is hidden.
@@ -105,32 +129,49 @@ function signOut() {
 }
 
 function showWho(me) {
-  $("#whoami-text").textContent = CFG.dev ? "Dev mode · local account" : `Signed in as ${me.email}`;
-  $("#sign-out").hidden = !auth0;
+  $("#whoami-text").textContent = CFG.dev ? "Dev mode · local account" : me.email;
   $("#whoami").hidden = false;
 }
-$("#sign-out").addEventListener("click", signOut);
 
 function showLogin() {
-  $("#whoami").hidden = true;
+  stopPlaying();
+  for (const id of ["boot", "whoami", "account", "tabs", "toast"]) $(`#${id}`).hidden = true;
   document.querySelectorAll(".tab").forEach((t) => (t.hidden = true));
-  $("#tabs").hidden = true;
   $("#login").hidden = false;
 }
 
 $("#sign-in").addEventListener("click", () => auth0.loginWithRedirect());
 
-// ---------- tabs ----------
+// ---------- screens ----------
+// Three tabs, plus the account screen, which sits on top and goes back.
+let currentTab = "mumble";
+
 function show(name) {
+  currentTab = name;
+  stopPlaying();
+  $("#account").hidden = true;
   document.querySelectorAll(".tab").forEach((t) => (t.hidden = t.id !== `tab-${name}`));
   document.querySelectorAll("#tabs button").forEach((b) =>
     b.dataset.tab === name ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")
   );
-  if (name === "mumble") loadPile();
-  if (name === "morning") loadDigest();
-  if (name === "remember") loadMe();
+  if (name === "mumble") guard($("#pile"), loadPile);
+  if (name === "morning") guard($("#digest"), loadDigest);
+  if (name === "remember") guard($("#kept"), loadKept);
+  window.scrollTo(0, 0);
 }
 document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));
+
+function showAccount() {
+  stopPlaying();
+  document.querySelectorAll(".tab").forEach((t) => (t.hidden = true));
+  document.querySelectorAll("#tabs button").forEach((b) => b.removeAttribute("aria-current"));
+  $("#account").hidden = false;
+  window.scrollTo(0, 0);
+  $("#me").replaceChildren(el("p", { class: "muted" }, "Loading…"));
+  guard($("#me"), loadMe);
+}
+$("#open-account").addEventListener("click", showAccount);
+$("#back").addEventListener("click", () => show(currentTab));
 
 // ---------- recording ----------
 let recorder = null;
@@ -353,23 +394,42 @@ function minutes(s) {
   return `${Math.round(s / 60)} min`;
 }
 
-async function setStatus(id, status) {
-  await api(`/api/items/${id}`, {
+function patchStatus(id, status) {
+  return api(`/api/items/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
-  loadDigest();
+}
+
+const DONE_SAYS = { done: "Done", approved: "Kept in Remember", dismissed: "Dismissed", new: "Back in Morning" };
+
+// Done, Keep and Dismiss take the item away at once; Undo brings it back.
+async function setStatus(it, status, reload) {
+  try {
+    await patchStatus(it.id, status);
+  } catch (err) {
+    return toast(`Couldn't update that: ${err.message}`);
+  }
+  toast(`${DONE_SAYS[status]}: ${it.title}`, {
+    label: "Undo",
+    run: async () => {
+      await patchStatus(it.id, it.status).catch((err) => toast(`Couldn't undo: ${err.message}`));
+      reload();
+    },
+  });
+  reload();
 }
 
 function itemCard(it) {
+  const reload = () => guard($("#digest"), loadDigest);
   const actions = el("div", { class: "actions" });
   if (it.ics) {
     actions.append(el("a", { href: `${API}/api/items/${it.id}/event.ics?${it.ics}` }, "Add to calendar"));
   }
-  if (it.kind === "todo") actions.append(el("button", { onclick: () => setStatus(it.id, "done") }, "Done"));
-  if (it.kind === "note") actions.append(el("button", { onclick: () => setStatus(it.id, "approved") }, "Keep"));
-  actions.append(el("button", { class: "no", onclick: () => setStatus(it.id, "dismissed") }, "Nah"));
+  if (it.kind === "todo") actions.append(el("button", { onclick: () => setStatus(it, "done", reload) }, "Done"));
+  if (it.kind === "note") actions.append(el("button", { onclick: () => setStatus(it, "approved", reload) }, "Keep"));
+  actions.append(el("button", { class: "no", onclick: () => setStatus(it, "dismissed", reload) }, "Dismiss"));
 
   return el(
     "div",
@@ -408,49 +468,91 @@ function reviewCard(r) {
 async function loadDigest() {
   const [d, review] = await Promise.all([api("/api/digest"), api("/api/review")]);
   $("#review").replaceChildren(...[reviewCard(review)].filter(Boolean));
+  // Morning is what still needs you. Kept notes live in Remember.
+  const open = d.items.filter((i) => i.status === "new");
   const p = d.last_nap?.payoff;
   $("#payoff").replaceChildren(
     p && d.last_nap.memos
       ? el("span", {},
           el("span", { class: "payoff-big" }, `${minutes(p.saved_s)} saved`),
           el("br"),
-          `Last night: ${d.last_nap.memos} memos, ${minutes(p.spoken_s)} of mumbling instead of ${minutes(p.by_hand_s)} of typing and sorting.`)
-      : "Nothing sorted yet. Mumble today, read this tomorrow."
+          `Last night: ${plural(d.last_nap.memos, "memo")}, ${minutes(p.spoken_s)} of mumbling instead of ${minutes(p.by_hand_s)} of typing and sorting.`)
+      : open.length
+        ? `${plural(open.length, "thing")} from your mumbles, waiting for you.`
+        : d.all_time.memos
+          ? "Nothing new since your last mumbles."
+          : "Nothing sorted yet. Mumble today, read this tomorrow."
   );
 
   const groups = [
     ["event", "Happening"],
     ["todo", "To do"],
-    ["note", "Worth remembering"],
+    ["note", "New notes"],
   ];
   const parts = groups
     .map(([kind, label]) => {
-      const items = d.items.filter((i) => i.kind === kind);
+      const items = open.filter((i) => i.kind === kind);
       return items.length ? el("div", { class: "group" }, el("h2", {}, label), items.map(itemCard)) : null;
     })
     .filter(Boolean);
-  $("#digest").replaceChildren(...(parts.length ? parts : [el("p", { class: "empty" }, "All clear. Go back to bed. 🦥")]));
+  $("#digest").replaceChildren(...(parts.length ? parts : [
+    el("div", { class: "empty" },
+      el("p", {}, "All clear. Go back to bed. 🦥"),
+      el("p", { class: "small" },
+        el("button", { class: "link", onclick: () => show("mumble") }, "Mumble something"), " or ",
+        el("button", { class: "link", onclick: () => show("remember") }, "see what you kept"))),
+  ]));
 }
 
 // ---------- remember ----------
+const KIND = { event: "Event", todo: "To-do", note: "Note" };
+const STATUS = { new: "in Morning", approved: "kept", done: "done", dismissed: "dismissed" };
+
+function memoryCard(r) {
+  return el("div", { class: "card memory" },
+    el("div", { class: "memory-head" },
+      el("span", { class: "title" }, r.title),
+      el("span", { class: "pill" }, `${KIND[r.kind] || r.kind} · ${STATUS[r.status] || r.status}`)),
+    r.detail ? el("div", { class: "muted" }, r.detail) : null,
+    r.due_at ? el("div", { class: "when" }, fmtDay(r.due_at)) : null,
+    r.said_at ? el("div", { class: "said" }, `You said this ${fmtDay(r.said_at)}`) : null);
+}
+
 $("#search-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const q = $("#q").value.trim();
   $("#results").replaceChildren(el("p", { class: "muted" }, "Thinking slowly…"));
+  $("#kept").hidden = true;
   try {
-    const rows = await api(`/api/search?q=${encodeURIComponent($("#q").value)}`);
+    const rows = await api(`/api/search?q=${encodeURIComponent(q)}`);
     $("#results").replaceChildren(
-      ...(rows.length
-        ? rows.map((r) =>
-            el("div", { class: "card" },
-              el("div", { class: "title" }, r.title),
-              r.detail ? el("div", { class: "muted" }, r.detail) : null,
-              el("div", { class: "said" }, `You said this ${fmtDay(r.said_at)}`)))
-        : [el("p", { class: "empty" }, "You never mumbled about that.")])
-    );
+      el("p", { class: "results-head" },
+        rows.length ? `${rows.length} ${rows.length === 1 ? "match" : "matches"} for “${q}”`
+          : `You never mumbled about “${q}”.`, " ",
+        el("button", { class: "link", onclick: clearSearch }, "Clear")),
+      ...rows.map(memoryCard));
   } catch (err) {
-    $("#results").replaceChildren(el("p", { class: "muted" }, err.message));
+    $("#results").replaceChildren(el("p", { class: "muted" }, `Couldn't search: ${err.message}`));
   }
 });
+
+function clearSearch() {
+  $("#q").value = "";
+  $("#results").replaceChildren();
+  $("#kept").hidden = false;
+}
+$("#q").addEventListener("input", () => { if (!$("#q").value) clearSearch(); });
+
+// With no search, Remember shows the notes you kept.
+async function loadKept() {
+  const d = await api("/api/digest");
+  const kept = d.items.filter((i) => i.status === "approved");
+  $("#kept").replaceChildren(
+    el("h2", { class: "section" }, "Kept"),
+    ...(kept.length
+      ? kept.map(memoryCard)
+      : [el("p", { class: "muted" }, "Notes you Keep in Morning land here. Search finds everything else.")]));
+}
 
 // ---------- you ----------
 function meter(label, used, most, unit = "") {
@@ -477,12 +579,13 @@ async function loadMe() {
       signOut();
     },
   }, "Delete my account");
+  $("#account-email").textContent = CFG.dev ? "Dev mode · local account" : me.email;
   $("#me").replaceChildren(
-    el("h2", {}, "You"),
-    el("p", { class: "muted" }, me.email),
+    el("h2", {}, "Today's allowance"),
     meter("Memos today", me.usage.memos_24h, me.quota.memos_per_day),
     meter("Audio today", me.usage.audio_mb_24h, me.quota.audio_mb_per_day, " MB"),
     meter("Unsorted", me.usage.pending, me.quota.pending_max),
+    el("p", { class: "muted small" }, "Allowances reset over the day. Unsorted memos clear at 3 AM."),
     el("div", { class: "actions" }, auth0 ? el("button", { onclick: signOut }, "Sign out") : null, del)
   );
 }
@@ -491,7 +594,10 @@ async function loadMe() {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 setupAuth().then(async (signedIn) => {
   if (!signedIn) return showLogin();
-  show(new URLSearchParams(location.hash.slice(1)).get("tab") || "mumble");
+  $("#boot").hidden = true;
+  $("#tabs").hidden = false;
+  const tab = new URLSearchParams(location.hash.slice(1)).get("tab");
+  show(["mumble", "morning", "remember"].includes(tab) ? tab : "mumble");
   showWho(await api("/api/me"));
 }).catch((err) => {
   showLogin();
