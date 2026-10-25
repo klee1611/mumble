@@ -4,8 +4,8 @@ window.MUMBLE = {
   api: "", // same origin: Vercel rewrites /api to api/index.py
   dev: false,
   auth0: {
-    domain: "AUTH0_DOMAIN",
-    client_id: "AUTH0_CLIENT_ID",
+    domain: "dev-l1bc0yw26epgfj00.us.auth0.com",
+    client_id: "xyWBWbw0UPN6MN6nAqf1tKDIZje29o5j",
     audience: "https://mumble-azure.vercel.app/api",
   },
 };

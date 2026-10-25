@@ -31,7 +31,7 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
     "Content-Security-Policy": (
-        "default-src 'self'; connect-src 'self' https:; media-src 'self' blob:; "
+        "default-src 'self'; connect-src 'self' https://dev-l1bc0yw26epgfj00.us.auth0.com; media-src 'self' blob:; "
         "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     ),
 }
