@@ -130,3 +130,8 @@ nav button[aria-current="page"] { color: var(--moss); background: var(--moss-sof
 #me .actions button { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; background: transparent; }
 #me .actions .no { color: #a34a3a; border-color: currentColor; }
 .login-error { color: #a34a3a; font-size: 0.9rem; }
+.whoami { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted);
+  padding: 6px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.whoami #whoami-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.whoami .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--moss); flex: none; }
+button.link { background: none; border: none; padding: 0; color: var(--moss); text-decoration: underline; font-size: inherit; }

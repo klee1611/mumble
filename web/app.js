@@ -100,7 +100,19 @@ function loginError(msg) {
   $("#login-error").hidden = false;
 }
 
+function signOut() {
+  if (auth0) auth0.logout({ logoutParams: { returnTo: `${location.origin}/` } });
+}
+
+function showWho(me) {
+  $("#whoami-text").textContent = CFG.dev ? "Dev mode · local account" : `Signed in as ${me.email}`;
+  $("#sign-out").hidden = !auth0;
+  $("#whoami").hidden = false;
+}
+$("#sign-out").addEventListener("click", signOut);
+
 function showLogin() {
+  $("#whoami").hidden = true;
   document.querySelectorAll(".tab").forEach((t) => (t.hidden = true));
   $("#tabs").hidden = true;
   $("#login").hidden = false;
@@ -386,7 +398,7 @@ async function loadMe() {
         return;
       }
       await api("/api/account", { method: "DELETE" });
-      if (auth0) auth0.logout({ logoutParams: { returnTo: `${location.origin}/` } });
+      signOut();
     },
   }, "Delete my account");
   $("#me").replaceChildren(
@@ -395,17 +407,16 @@ async function loadMe() {
     meter("Memos today", me.usage.memos_24h, me.quota.memos_per_day),
     meter("Audio today", me.usage.audio_mb_24h, me.quota.audio_mb_per_day, " MB"),
     meter("Unsorted", me.usage.pending, me.quota.pending_max),
-    el("div", { class: "actions" },
-      auth0 ? el("button", { onclick: () => auth0.logout({ logoutParams: { returnTo: `${location.origin}/` } }) }, "Sign out") : null,
-      del)
+    el("div", { class: "actions" }, auth0 ? el("button", { onclick: signOut }, "Sign out") : null, del)
   );
 }
 
 // ---------- boot ----------
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
-setupAuth().then((signedIn) => {
-  if (!signedIn) showLogin();
-  else show(new URLSearchParams(location.hash.slice(1)).get("tab") || "mumble");
+setupAuth().then(async (signedIn) => {
+  if (!signedIn) return showLogin();
+  show(new URLSearchParams(location.hash.slice(1)).get("tab") || "mumble");
+  showWho(await api("/api/me"));
 }).catch((err) => {
   showLogin();
   loginError(`Couldn't reach sign-in: ${err.message}`);
