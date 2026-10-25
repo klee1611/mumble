@@ -163,7 +163,7 @@ async function startRecording() {
   rec.onstop = async () => {
     stream.getTracks().forEach((t) => t.stop());
     const type = (rec.mimeType || mimeType || "audio/webm").split(";")[0];
-    await upload(new Blob(parts, { type }), type);
+    await upload(new Blob(parts, { type }), type, Math.round((Date.now() - startedAt) / 1000));
   };
   rec.onerror = (e) => toast(`Recording failed: ${e.error?.message || "unknown error"}`);
   recorder = rec;
@@ -211,18 +211,26 @@ function toBase64(blob) {
   });
 }
 
-async function upload(blob, type) {
+// Recordings made in this tab play from memory; older ones are fetched.
+const localAudio = new Map(); // memo id -> blob URL
+const lengths = new Map(); // memo id -> seconds
+let freshId = null;
+
+async function upload(blob, type, seconds) {
   if (blob.size > MAX_BYTES) {
     toast("That one's too long for a mumble. Keep it under about 5 minutes.");
     return;
   }
   toast("Saving…");
   try {
-    await api("/api/memos", {
+    const memo = await api("/api/memos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mime: type || "audio/webm", audio: await toBase64(blob) }),
     });
+    localAudio.set(memo.id, URL.createObjectURL(blob));
+    if (seconds) lengths.set(memo.id, seconds);
+    freshId = memo.id;
     toast("Got it. Forget about it. 🦥");
     loadPile();
   } catch (err) {
@@ -230,15 +238,81 @@ async function upload(blob, type) {
   }
 }
 
+// ---------- listening back ----------
+const player = new Audio();
+let playingBtn = null;
+
+function stopPlaying() {
+  player.pause();
+  if (playingBtn) {
+    playingBtn.textContent = "▶";
+    playingBtn.setAttribute("aria-label", playingBtn.dataset.label);
+  }
+  playingBtn = null;
+}
+player.addEventListener("ended", stopPlaying);
+
+async function play(memoId, btn) {
+  if (playingBtn === btn) return stopPlaying();
+  stopPlaying();
+  try {
+    if (!localAudio.has(memoId)) {
+      const r = await api(`/api/memos/${memoId}/audio`);
+      const bytes = Uint8Array.from(atob(r.audio), (c) => c.charCodeAt(0));
+      localAudio.set(memoId, URL.createObjectURL(new Blob([bytes], { type: r.mime })));
+    }
+    player.src = localAudio.get(memoId);
+    await player.play();
+    playingBtn = btn;
+    btn.textContent = "■";
+    btn.setAttribute("aria-label", "Stop");
+  } catch (err) {
+    toast(`Couldn't play that one: ${err.message}`);
+  }
+}
+
 // ---------- tonight's pile ----------
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const fmtDay = (iso) =>
   new Date(iso).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const fmtLength = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+function pendingRow(m) {
+  const label = `Play memo from ${fmtTime(m.created_at)}`;
+  const btn = el("button", { class: "play", "aria-label": label, "data-label": label }, "▶");
+  btn.addEventListener("click", () => play(m.id, btn));
+  const seconds = lengths.get(m.id);
+  return el("li", { class: `memo${m.id === freshId ? " fresh" : ""}` },
+    el("div", { class: "memo-head" },
+      btn,
+      el("span", { class: "memo-when" }, Date.now() - new Date(m.created_at) < 60_000 ? "Just now" : fmtTime(m.created_at),
+        seconds ? el("span", { class: "muted" }, ` · ${fmtLength(seconds)}`) : null),
+      el("span", { class: "pill" }, "waits for 3 AM")));
+}
+
+function sortedRow(m) {
+  const failed = m.status === "failed";
+  const made = [[m.todos, "to-do"], [m.events, "event"], [m.notes, "note"]]
+    .filter(([n]) => n > 0).map(([n, w]) => plural(n, w)).join(" · ");
+  const words = (m.transcript || "").trim();
+  return el("li", { class: "memo" },
+    el("div", { class: "memo-head" },
+      el("span", { class: "memo-when" }, fmtDay(m.created_at)),
+      el("span", { class: `pill ${failed ? "failed" : ""}` }, failed ? "couldn't sort" : "sorted")),
+    failed
+      ? el("p", { class: "muted" }, "Mumble couldn't make this one out.")
+      : el("p", { class: "said" }, words ? `“${words}”` : "Sounded silent, so nothing to sort."),
+    made
+      ? el("p", { class: "made" }, `Became ${made} · `,
+          el("button", { class: "link", onclick: () => show("morning") }, "see them in Morning"))
+      : null);
+}
 
 async function loadPile() {
   const [memos, nap, me] = await Promise.all([api("/api/memos?limit=20"), api("/api/nap"), api("/api/me")]);
   const pending = memos.filter((m) => m.status === "pending");
-  const recent = memos.filter((m) => m.status !== "pending").slice(0, 5);
+  const recent = memos.filter((m) => m.status !== "pending").slice(0, 3);
 
   const napBtn = el(
     "button",
@@ -255,20 +329,19 @@ async function loadPile() {
   if (nap.napping) napBtn.disabled = true;
   if (!nap.can_nap_now) napBtn.hidden = true;
 
+  stopPlaying();
   $("#pile").replaceChildren(...[
     el("h2", {}, pending.length ? `Tonight's pile · ${pending.length}` : "Tonight's pile"),
-    pending.length
-      ? el("ul", {}, pending.map((m) => el("li", {}, `Memo at ${fmtTime(m.created_at)}`, el("span", { class: "pill" }, "sleeping"))))
-      : el("p", { class: "muted" }, "Empty. Mumble something."),
-    el("p", { class: "muted" }, "Sorted overnight at 3 AM, slowly and steadily."),
+    el("p", { class: "muted explain" },
+      pending.length
+        ? "Mumble listens to these at 3 AM and puts what you said in Morning: to-dos, events and notes."
+        : "Empty. Mumble something. At 3 AM it becomes to-dos, events and notes in Morning."),
+    pending.length ? el("ul", {}, pending.map(pendingRow)) : null,
     el("p", { class: "muted quota" },
       `Today: ${me.usage.memos_24h} of ${me.quota.memos_per_day} memos · ` +
       `${me.usage.audio_mb_24h} of ${me.quota.audio_mb_per_day} MB`),
-    recent.length
-      ? el("ul", {}, recent.map((m) =>
-          el("li", {}, `Memo at ${fmtTime(m.created_at)}`,
-            el("span", { class: `pill ${m.status === "failed" ? "failed" : ""}` }, m.status === "failed" ? "failed" : "sorted"))))
-      : null,
+    recent.length ? el("h2", { class: "sub" }, "Already sorted") : null,
+    recent.length ? el("ul", {}, recent.map(sortedRow)) : null,
     napBtn,
   ].filter(Boolean));
   if (nap.napping) setTimeout(loadPile, 4000);

@@ -1,5 +1,5 @@
 // App-shell cache so Mumble opens instantly (and offline) from the home screen.
-const CACHE = "mumble-v6";
+const CACHE = "mumble-v7";
 const SHELL = ["/", "/config.js", "/app.js", "/style.css", "/icon.svg", "/manifest.webmanifest",
                "/vendor/auth0-spa-js-2.28.2.esm.js"];
 

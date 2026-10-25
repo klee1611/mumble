@@ -31,7 +31,7 @@ CORS = {
 } if _origin else {}
 
 # Only the tail of the path matters: /api/memos and /memos are the same route.
-ROUTE = re.compile(r"(?:^|/)(me|account|memos|nap|digest|review|search|items/(\d+)(/event\.ics)?)/?$")
+ROUTE = re.compile(r"(?:^|/)(me|account|memos|nap|digest|review|search|memos/(\d+)/audio|items/(\d+)(/event\.ics)?)/?$")
 
 
 def _json_default(o):
@@ -65,7 +65,7 @@ def handle(method: str, url: str, headers: dict, body: str = "") -> dict:
     m = ROUTE.search(path)
     if not m:
         return respond(404, {"error": "not found"})
-    route, item_id, is_ics = m.group(1), m.group(2), m.group(3)
+    route, memo_id, item_id, is_ics = m.group(1), m.group(2), m.group(3), m.group(4)
 
     secret = os.environ.get("MUMBLE_ICS_SECRET", "")
     claims = None
@@ -102,8 +102,10 @@ def handle(method: str, url: str, headers: dict, body: str = "") -> dict:
                 return respond(200, {"started": False, "reason": "naps run at 3 AM"})
             if route == "memos" and method == "POST":
                 return respond(200, core.add_memo(conn, account, data.get("mime", ""), data.get("audio", "")))
-            if route == "memos":
+            if route == "memos" and method == "GET":
                 return respond(200, core.list_memos(conn, me, query.get("limit", 50)))
+            if memo_id and method == "GET":
+                return respond(200, core.memo_audio(conn, me, int(memo_id)))
             if route == "nap":
                 return respond(200, core.nap_status(conn, me, can_nap_now=False))
             if route == "digest":

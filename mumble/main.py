@@ -108,6 +108,12 @@ def list_memos(limit: int = 50, acct: dict = Depends(account)):
         return core.list_memos(conn, acct["id"], limit)
 
 
+@app.get("/api/memos/{memo_id}/audio")
+def memo_audio(memo_id: int, acct: dict = Depends(account)):
+    with db.connect() as conn:
+        return core.memo_audio(conn, acct["id"], memo_id)
+
+
 def _run_nap() -> None:
     try:
         # Separate process, like the GitHub Actions job, so Whisper's memory is freed afterwards.

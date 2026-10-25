@@ -201,6 +201,27 @@ def test_accounts_cannot_see_or_touch_each_other(fn):
     assert last is None or set(last) == {"id", "started_at", "finished_at"}
 
 
+def test_only_the_owner_can_play_a_recording(fn):
+    call(fn, "GET", "/me", as_="test|bob")
+    memo = call(fn, "POST", "/api/memos", memo_body(6), as_="test|alice")[1]
+    status, played = call(fn, "GET", f"/api/memos/{memo['id']}/audio", as_="test|alice")
+    assert status == 200 and base64.b64decode(played["audio"]) == b"x" * 6 and played["mime"] == "audio/webm"
+    assert call(fn, "GET", f"/api/memos/{memo['id']}/audio", as_="test|bob")[0] == 404
+    assert call(fn, "GET", f"/api/memos/{memo['id']}/audio", as_=None)[0] == 401
+    # The nap deletes the audio once it's sorted.
+    with psycopg.connect(config.DATABASE_URL, autocommit=True) as conn:
+        conn.execute("UPDATE memos SET audio = NULL, status = 'done' WHERE id = %s", (memo["id"],))
+    assert call(fn, "GET", f"/api/memos/{memo['id']}/audio", as_="test|alice")[0] == 404
+
+
+def test_memo_list_counts_what_each_memo_became(fn):
+    item = add_item("test|alice", kind="todo")
+    with psycopg.connect(config.DATABASE_URL) as conn:
+        memo_id = conn.execute("SELECT memo_id FROM items WHERE id = %s", (item,)).fetchone()[0]
+    memo = next(m for m in call(fn, "GET", "/memos", as_="test|alice")[1] if m["id"] == memo_id)
+    assert (memo["todos"], memo["events"], memo["notes"]) == (1, 0, 0)
+
+
 def test_delete_account_removes_everything(fn):
     call(fn, "GET", "/me", as_="test|leaver")
     call(fn, "POST", "/memos", memo_body(), as_="test|leaver")

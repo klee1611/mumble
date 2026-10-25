@@ -171,9 +171,21 @@ def add_memo(conn, account: dict, mime: str, audio_b64: str) -> dict:
 
 def list_memos(conn, account_id: str, limit=50) -> list[dict]:
     return conn.execute(
-        "SELECT id, created_at, status, duration_s, transcript, error FROM memos "
-        "WHERE account_id = %s ORDER BY id DESC LIMIT %s", (account_id, _limit(limit, 50, 200))
+        "SELECT m.id, m.created_at, m.status, m.duration_s, m.transcript, m.error, "
+        "       (SELECT count(*) FROM items i WHERE i.memo_id = m.id AND i.kind = 'todo') AS todos, "
+        "       (SELECT count(*) FROM items i WHERE i.memo_id = m.id AND i.kind = 'event') AS events, "
+        "       (SELECT count(*) FROM items i WHERE i.memo_id = m.id AND i.kind = 'note') AS notes "
+        "FROM memos m WHERE m.account_id = %s ORDER BY m.id DESC LIMIT %s", (account_id, _limit(limit, 50, 200))
     ).fetchall()
+
+
+def memo_audio(conn, account_id: str, memo_id: int) -> dict:
+    """The recording, for listening back. Only kept until the nap sorts it."""
+    row = conn.execute("SELECT mime, audio FROM memos WHERE id = %s AND account_id = %s AND audio IS NOT NULL",
+                       (memo_id, account_id)).fetchone()
+    if row is None:
+        raise ApiError(404, "no recording to play")
+    return {"mime": row["mime"], "audio": base64.b64encode(row["audio"]).decode()}
 
 
 def nap_status(conn, account_id: str, can_nap_now: bool) -> dict:

@@ -62,8 +62,21 @@ button { cursor: pointer; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px; margin-bottom: 14px; }
 .pile h2, .group h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 10px; }
 .pile ul { list-style: none; margin: 0; padding: 0; }
-.pile li { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--line); font-size: 15px; }
+.pile li { padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; }
 .pile li:first-child { border-top: none; }
+.pile h2.sub { margin-top: 18px; }
+.pile .explain { margin: -4px 0 8px; font-size: 15px; }
+.memo-head { display: flex; align-items: center; gap: 10px; }
+.memo-when { flex: 1; }
+.memo .said { margin: 6px 0 0; font-style: italic; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.memo .made { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
+.play { flex: none; width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--moss-soft); color: var(--moss); font-size: 13px; line-height: 1; }
+.play:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
+.memo.fresh { animation: fresh 2.4s ease-out; border-radius: 10px; }
+@keyframes fresh { from { background: var(--moss-soft); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .memo.fresh { animation: none; } }
 .pill { font-size: 13px; padding: 2px 9px; border-radius: 999px; background: var(--moss-soft); color: var(--moss); }
 .pill.failed { background: rgb(196 85 61 / 0.15); color: var(--alarm); }
 .ghost { background: none; border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; color: var(--muted); }
