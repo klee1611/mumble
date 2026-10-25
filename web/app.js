@@ -26,7 +26,7 @@ async function setupAuth() {
     domain: CFG.auth0.domain,
     clientId: CFG.auth0.client_id,
     authorizationParams: {
-      redirect_uri: location.origin,
+      redirect_uri: `${location.origin}/`, // must match Allowed Callback URLs exactly
       audience: CFG.auth0.audience,
       scope: "openid profile email offline_access",
     },
@@ -380,7 +380,7 @@ async function loadMe() {
         return;
       }
       await api("/api/account", { method: "DELETE" });
-      if (auth0) auth0.logout({ logoutParams: { returnTo: location.origin } });
+      if (auth0) auth0.logout({ logoutParams: { returnTo: `${location.origin}/` } });
     },
   }, "Delete my account");
   $("#me").replaceChildren(
@@ -390,7 +390,7 @@ async function loadMe() {
     meter("Audio today", me.usage.audio_mb_24h, me.quota.audio_mb_per_day, " MB"),
     meter("Unsorted", me.usage.pending, me.quota.pending_max),
     el("div", { class: "actions" },
-      auth0 ? el("button", { onclick: () => auth0.logout({ logoutParams: { returnTo: location.origin } }) }, "Sign out") : null,
+      auth0 ? el("button", { onclick: () => auth0.logout({ logoutParams: { returnTo: `${location.origin}/` } }) }, "Sign out") : null,
       del)
   );
 }
