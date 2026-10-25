@@ -41,11 +41,11 @@ async function setupAuth() {
     try {
       await auth0.handleRedirectCallback();
     } catch (err) {
-      toast(`Sign-in didn't work: ${err.message}`);
+      loginError(`Sign-in didn't work: ${err.message}`);
     }
     history.replaceState(null, "", "/");
   } else if (q.has("error")) {
-    toast(q.get("error_description") || "Sign-in didn't work.");
+    loginError(`Sign-in didn't work: ${q.get("error_description") || q.get("error")}`);
     history.replaceState(null, "", "/");
   }
   return auth0.isAuthenticated();
@@ -92,6 +92,12 @@ function el(tag, attrs = {}, ...children) {
 
 function toast(msg) {
   $("#toast").textContent = msg;
+}
+
+// Shown on the sign-in screen, where the toast (on the Mumble tab) is hidden.
+function loginError(msg) {
+  $("#login-error").textContent = msg;
+  $("#login-error").hidden = false;
 }
 
 function showLogin() {
@@ -402,5 +408,5 @@ setupAuth().then((signedIn) => {
   else show(new URLSearchParams(location.hash.slice(1)).get("tab") || "mumble");
 }).catch((err) => {
   showLogin();
-  toast(`Couldn't reach sign-in: ${err.message}`);
+  loginError(`Couldn't reach sign-in: ${err.message}`);
 });

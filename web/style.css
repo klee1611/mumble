@@ -129,3 +129,4 @@ nav button[aria-current="page"] { color: var(--moss); background: var(--moss-sof
 #me .actions { margin-top: 0.8rem; display: flex; flex-wrap: wrap; gap: 8px; }
 #me .actions button { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; background: transparent; }
 #me .actions .no { color: #a34a3a; border-color: currentColor; }
+.login-error { color: #a34a3a; font-size: 0.9rem; }
