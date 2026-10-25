@@ -2,6 +2,10 @@
 
 Mumble at your phone all day. Open models sort it out overnight.
 
+**Live:** https://mumble-azure.vercel.app
+
+![Mumble on three phones: record a memo, wake up to it sorted, find anything you said](docs/showcase.png)
+
 Record rambling voice memos whenever something pops into your head. At 3 AM, a
 free GitHub Actions runner wakes up, transcribes them with Whisper, and has
 Gemma turn them into to-dos, calendar events and notes. In the morning you open
@@ -9,6 +13,29 @@ one screen and tap **Done**, **Keep**, **Add to calendar** or **Dismiss** (each 
 Until then you can play a memo back to check it saved; kept notes and search live in **Remember**.
 
 It costs nothing to run.
+
+[![Watch the 70-second demo on YouTube](docs/demo.png)](https://youtube.com/shorts/es16znn7-r8)
+
+## A real morning
+
+<img src="docs/morning.png" alt="The Morning screen: 10 min saved, and Ultramarine's review of the week" width="320" align="right">
+
+A demo week of everyday memos (voiced with macOS `say`): 9 memos, 70 seconds of
+talking, 220 words. The nap turned them into 16 to-dos, events and notes, and
+Morning opened with:
+
+> **10 min saved.** Last night: 9 memos, 1 min of mumbling instead of 11 min of typing and sorting.
+
+Mumble counts typing at 40 words a minute, plus about 20 seconds to file each item
+into the right list with the right date.
+
+On Sundays, Ultramarine reads the whole week. In the demo week it noticed "call the
+dentist" said on three separate mornings, and never done. Every claim cites the
+items it's based on. That review cost $0.0004.
+
+<br clear="right">
+
+## How it works
 
 - **Open models do all the thinking:** [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for speech,
   Gemma (`gemma4:e2b-it-qat`) for structure and `embeddinggemma` for memory, all served by [Ollama](https://ollama.com).
