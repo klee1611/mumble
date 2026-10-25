@@ -20,6 +20,7 @@ MAX_AUDIO_BYTES = 750 * 1024  # a 5-minute memo at 16 kbps is ~600 KB
 STATUSES = ("new", "approved", "done", "dismissed")
 
 # Lazy-payoff estimate: what the same memos would have cost by hand.
+MAX_QUERY = 300  # same as the local server's limit
 TYPING_WPM = 40
 SORT_SECONDS_PER_ITEM = 20
 
@@ -329,6 +330,8 @@ def search(conn, account_id: str, q: str, limit=10, vector: list[float] | None =
     q = (q or "").strip()
     if len(q) < 2:
         raise ApiError(422, "search for something")
+    if len(q) > MAX_QUERY:
+        raise ApiError(422, "that search is too long")
     sem = (
         """SELECT id, row_number() OVER (ORDER BY embedding <=> %(v)s::vector) AS r
            FROM items WHERE account_id = %(a)s AND embedding IS NOT NULL

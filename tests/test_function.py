@@ -348,6 +348,10 @@ def test_database_errors_do_not_leak(fn, monkeypatch):
     assert status == 500 and body == {"error": "something went wrong"}
 
 
+def test_search_length_is_capped(fn):
+    assert call(fn, "GET", "/search", query="q=" + "a" * 301)[0] == 422
+
+
 def test_like_wildcards_are_literal(fn):
     assert call(fn, "GET", "/search", query="q=%25%25")[1] == []
     assert call(fn, "GET", "/search", query="q=__")[1] == []
