@@ -134,7 +134,6 @@ document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("cli
 
 // ---------- recording ----------
 let recorder = null;
-let chunks = [];
 let startedAt = 0;
 let timer = null;
 
@@ -156,14 +155,18 @@ async function startRecording() {
   const mimeType = pickMime();
   // Speech sounds fine at 16 kbps, and it keeps a 5-minute memo under the
   // serverless request limit.
-  recorder = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 16000 });
-  chunks = [];
-  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.onstop = async () => {
+  // A local name, not the global: stopRecording() clears `recorder` before
+  // the browser fires onstop, and onstop still needs it.
+  const rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 16000 });
+  const parts = [];
+  rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
+  rec.onstop = async () => {
     stream.getTracks().forEach((t) => t.stop());
-    const type = (recorder.mimeType || mimeType || "audio/webm").split(";")[0];
-    await upload(new Blob(chunks, { type }), type);
+    const type = (rec.mimeType || mimeType || "audio/webm").split(";")[0];
+    await upload(new Blob(parts, { type }), type);
   };
+  rec.onerror = (e) => toast(`Recording failed: ${e.error?.message || "unknown error"}`);
+  recorder = rec;
   recorder.start();
   startedAt = Date.now();
   $("#rec").classList.add("recording");
